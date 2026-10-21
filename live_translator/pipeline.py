@@ -1,0 +1,177 @@
+"""Segmentleri paralel tanıyıp çevirir, sonuçları geliş sırasıyla yayınlar."""
+from __future__ import annotations
+
+import collections
+import queue
+import threading
+import time
+from concurrent.futures import Future, ThreadPoolExecutor
+from typing import Optional
+
+import speech_recognition as sr
+from PyQt6.QtCore import QObject, QThread, pyqtSignal
+
+from .capture import AudioSegment
+from .config import AppConfig
+from .log import LOGGER
+from .speech import SpeechToTextService, TranslatorService
+from .tts import TTSService
+
+
+class PipelineWorker(QThread):
+    subtitle_ready = pyqtSignal(str, str)   # (orijinal, çeviri)
+    log_message = pyqtSignal(str)
+    error_occurred = pyqtSignal(str)
+    busy_changed = pyqtSignal(bool)
+
+    MAX_WORKERS = 3
+    MAX_BACKLOG = 6
+    RESULT_TIMEOUT_SEC = 25.0
+    DUPLICATE_WINDOW_SEC = 4.0
+
+    def __init__(self, config: AppConfig, in_queue: "queue.Queue[AudioSegment]",
+                 stt: SpeechToTextService, translator: TranslatorService,
+                 tts: TTSService, parent: Optional[QObject] = None) -> None:
+        super().__init__(parent)
+        self._config = config
+        self._queue = in_queue
+        self._stt = stt
+        self._translator = translator
+        self._tts = tts
+        self._stop_event = threading.Event()
+        self._last_text = ""
+        self._last_text_at = 0.0
+        self._last_partial = ""
+        self._pending: "collections.deque[Future]" = collections.deque()
+        self._cv = threading.Condition()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        with self._cv:
+            self._cv.notify_all()
+
+    def run(self) -> None:
+        self._stop_event.clear()
+        executor = ThreadPoolExecutor(max_workers=self.MAX_WORKERS, thread_name_prefix="stt")
+        emitter = threading.Thread(target=self._emit_in_order, name="SubtitleEmitter", daemon=True)
+        emitter.start()
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    segment = self._queue.get(timeout=0.2)
+                except queue.Empty:
+                    continue
+
+                # Havuz doluysa segmenti atmak yerine bekliyoruz; atınca bazı
+                # altyazılar hiç gelmiyordu.
+                with self._cv:
+                    while (len(self._pending) >= self.MAX_BACKLOG
+                           and not self._stop_event.is_set()):
+                        self._cv.wait(0.1)
+                if self._stop_event.is_set():
+                    break
+
+                future = executor.submit(self._process, segment)
+                with self._cv:
+                    self._pending.append(future)
+                    self.busy_changed.emit(True)
+                    self._cv.notify()
+        except Exception as exc:
+            LOGGER.exception("Pipeline üretici hatası")
+            self.error_occurred.emit(str(exc))
+        finally:
+            self._stop_event.set()
+            with self._cv:
+                self._cv.notify_all()
+            emitter.join(timeout=8.0)
+            executor.shutdown(wait=False, cancel_futures=True)
+            self.busy_changed.emit(False)
+
+    def _process(self, segment: AudioSegment) -> Optional[tuple[str, str, bool]]:
+        # Kısmi sonuçların hatası ve anlaşılamaması olağan (cümle yarım),
+        # kullanıcıya yalnızca kesinleşmiş segmentlerinkini gösteriyoruz.
+        cfg = self._config
+        src_profile = cfg.profile(cfg.source_lang)
+        tgt_profile = cfg.profile(cfg.target_lang)
+
+        try:
+            original = self._stt.transcribe(segment, src_profile.stt_code)
+        except sr.RequestError as exc:
+            self._report(segment, f"STT servisine ulaşılamadı (internet?): {exc}")
+            return None
+        except Exception as exc:
+            self._report(segment, f"STT hatası: {exc}")
+            return None
+
+        if not original:
+            if segment.is_final:
+                self.log_message.emit(f"🔈 ({segment.duration:.1f} sn ses anlaşılamadı)")
+            return None
+
+        try:
+            translated = self._translator.translate(original, src_profile.translate_code,
+                                                    tgt_profile.translate_code)
+        except Exception as exc:
+            self._report(segment, f"Çeviri hatası: {exc}")
+            translated = original
+        return original, translated, segment.is_final
+
+    def _report(self, segment: AudioSegment, message: str) -> None:
+        if segment.is_final:
+            self.error_occurred.emit(message)
+
+    def _emit_in_order(self) -> None:
+        while True:
+            with self._cv:
+                while not self._pending and not self._stop_event.is_set():
+                    self._cv.wait(0.2)
+                if not self._pending:
+                    if self._stop_event.is_set():
+                        return
+                    continue
+                future = self._pending[0]
+
+            try:
+                result = future.result(timeout=self.RESULT_TIMEOUT_SEC)
+            except Exception as exc:
+                LOGGER.warning("Segment işlenemedi: %s", exc)
+                result = None
+
+            with self._cv:
+                if self._pending and self._pending[0] is future:
+                    self._pending.popleft()
+                if not self._pending:
+                    self.busy_changed.emit(False)
+                self._cv.notify_all()      # geri basınçta bekleyen üreticiyi uyandır
+
+            if result is not None:
+                self._publish(*result)
+
+    def _publish(self, original: str, translated: str, is_final: bool) -> None:
+        now = time.time()
+
+        if not is_final:
+            # Kısmi sonuç sadece ekrandaki metni tazeler; günlüğe yazılmaz,
+            # yarım cümle seslendirilmez.
+            if original == self._last_partial:
+                return
+            self._last_partial = original
+            self.subtitle_ready.emit(original, translated)
+            return
+
+        # Yankı bastırma burada, sıralı yayında yapılıyor; paralel işçilerde
+        # yapılsa yarış koşulu olurdu.
+        if (original.lower() == self._last_text.lower()
+                and (now - self._last_text_at) < self.DUPLICATE_WINDOW_SEC):
+            self._last_text_at = now
+            return
+        self._last_text = original
+        self._last_text_at = now
+        self._last_partial = ""
+
+        self.log_message.emit(f"🎧 {original}")
+        self.subtitle_ready.emit(original, translated)
+        self.log_message.emit(f"💬 {translated}")
+
+        if self._config.dubbing_enabled and translated:
+            self._tts.speak(translated, self._config.voice, self._config.tts_rate)
