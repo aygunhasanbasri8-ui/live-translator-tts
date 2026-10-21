@@ -1,16 +1,19 @@
 # -*- coding: utf-8 -*-
 """
-Donmuş (.exe) ortamda tüm yığını sınayan konsol testi.
-Sadece geliştirme amaçlıdır; dağıtılan uygulamanın parçası değildir.
+Donmuş (.exe) ortamda bütün zinciri sınayan konsol testi. Dağıtılan
+uygulamanın parçası değil; yeni makinede "neden ses gelmiyor" sorusuna
+ilk bakılacak yer.
 
 Derlemek için:  .venv\\Scripts\\python.exe -m PyInstaller --noconfirm selftest.spec
 """
-import os
-import sys
-import time
-import queue
 import asyncio
+import os
+import queue
+import sys
 import threading
+import time
+
+import edge_tts
 
 import live_translator as LT
 
@@ -28,48 +31,33 @@ def check(name, fn):
         results.append(False)
 
 
-print(f"donmuş mu: {getattr(sys, 'frozen', False)}  |  kök: {getattr(sys, '_MEIPASS', '-')}")
-print("=" * 64)
-
-# 1) PortAudio + WASAPI loopback cihazı
-state = {}
-
-
 def t_device():
     import pyaudiowpatch as pyaudio
     pa = pyaudio.PyAudio()
     cap = LT.LoopbackAudioCapturer(LT.AppConfig(), queue.Queue(), threading.Event())
     dev = cap._resolve_loopback_device(pa)
-    stream, fmt, rate, ch = cap._open_stream(pa, dev)
-    stream.stop_stream(); stream.close(); pa.terminate()
-    state["rate"] = rate
+    stream, _fmt, rate, ch = cap._open_stream(pa, dev)
+    stream.stop_stream()
+    stream.close()
+    pa.terminate()
     return f"{dev['name']} @ {rate} Hz / {ch} kanal"
 
 
-check("PortAudio + loopback cihazı", t_device)
-
-# 2) Edge-TTS sentezi
 mp3 = os.path.join(os.environ.get("TEMP", "."), "selftest_tts.mp3")
 
 
 def t_edge():
-    loop = asyncio.new_event_loop(); asyncio.set_event_loop(loop)
-    loop.run_until_complete(
-        LT.edge_tts.Communicate("hello everyone", "en-US-AriaNeural").save(mp3))
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(edge_tts.Communicate("hello everyone", "en-US-AriaNeural").save(mp3))
     loop.close()
     return f"{os.path.getsize(mp3)} bayt üretildi"
 
 
-check("Edge-TTS sentezi", t_edge)
-
-# 3) Çeviri
-check("deep-translator", lambda: repr(LT.TranslatorService().translate("good morning", "en", "tr")))
-
-# 4) UÇTAN UCA: çal -> loopback yakala -> STT (flac) -> çeviri
 def t_pipeline():
-    cfg = LT.AppConfig()
+    """Çal -> loopback'ten yakala -> STT -> çeviri."""
     q: "queue.Queue[LT.AudioSegment]" = queue.Queue(maxsize=16)
-    cap = LT.LoopbackAudioCapturer(cfg, q, threading.Event())
+    cap = LT.LoopbackAudioCapturer(LT.AppConfig(), q, threading.Event())
     cap.start()
     time.sleep(1.2)
     player = LT.create_audio_player()
@@ -84,17 +72,25 @@ def t_pipeline():
                 break
         except queue.Empty:
             pass
-    cap.stop(); cap.wait(5000)
+    cap.stop()
+    cap.wait(5000)
     if seg is None:
         raise RuntimeError("loopback'ten hiç ses segmenti yakalanamadı")
 
-    text = LT.SpeechToTextService().transcribe(seg, "en-US")   # flac-win32.exe burada gerekli
+    # flac-win32.exe exe'ye girmediyse burada patlar
+    text = LT.SpeechToTextService().transcribe(seg, "en-US")
     if not text:
         raise RuntimeError("STT ses yakaladı ama metin döndürmedi")
     tr = LT.TranslatorService().translate(text, "en", "tr")
     return f"{seg.duration:.1f} sn ses -> {text!r} -> {tr!r}"
 
 
+print(f"donmuş mu: {getattr(sys, 'frozen', False)}  |  kök: {getattr(sys, '_MEIPASS', '-')}")
+print("=" * 64)
+
+check("PortAudio + loopback cihazı", t_device)
+check("Edge-TTS sentezi", t_edge)
+check("deep-translator", lambda: repr(LT.TranslatorService().translate("good morning", "en", "tr")))
 check("UÇTAN UCA (yakala+STT+çeviri)", t_pipeline)
 
 try:
