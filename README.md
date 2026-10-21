@@ -1,10 +1,13 @@
 # Live Translator
 
-Windows'ta sistem sesini WASAPI loopback ile yakalar, konuşmayı metne çevirir, hedef dile çevirir ve ekranda altyazı olarak gösterir. İsteğe bağlı Edge-TTS dublajı desteklenir.
+Bilgisayarda çalan sesi (YouTube, Zoom, oyun...) dinleyip ekranın altında
+çevrilmiş altyazı olarak gösteren masaüstü uygulaması. İstenirse çeviriyi
+Edge-TTS ile seslendirip dublaj da yapıyor. Mikrofonu değil sistem sesini
+yakaladığı için yalnızca Windows'ta çalışıyor (WASAPI loopback).
 
 ## Kurulum
 
-Python 3.10 veya üzeri gerekir. Windows'ta sanal ortam oluşturup bağımlılıkları kurun:
+Python 3.10 veya üzeri gerekiyor:
 
 ```powershell
 py -m venv .venv
@@ -12,19 +15,42 @@ py -m venv .venv
 python -m pip install -e ".[dev,shortcuts]"
 ```
 
-`pygame` kurulamazsa uygulama Windows MCI oynatıcısına düşer.
+`pygame` isteğe bağlı (`.[audio]`); yoksa dublaj Windows MCI ile çalınıyor.
+Kısayollar önce `keyboard`, o kurulamazsa `pynput` ile bağlanıyor.
 
-## Çalıştırma
+Tanıma ve çeviri Google'ın ücretsiz uçlarını kullandığı için internet şart.
+Çok sık istekte Google geçici olarak "too many requests" dönebiliyor.
+
+## Kullanım
 
 ```powershell
 python -m live_translator
 ```
 
-Kısayollar:
+| Kısayol      |                        |
+|--------------|------------------------|
+| Ctrl+Shift+R | Başlat                 |
+| Ctrl+Shift+S | Durdur                 |
+| Ctrl+Shift+H | Altyazıyı gizle/göster |
 
-- `Ctrl+Shift+R`: dinlemeyi başlatır
-- `Ctrl+Shift+S`: dinlemeyi durdurur
-- `Ctrl+Shift+H`: altyazı katmanını gösterir veya gizler
+Pencerede kaynak/hedef dil, mod (sadece altyazı ya da altyazı + dublaj), ses
+ve konuşma hızı seçiliyor. "Akıcı mod" açıkken altyazı konuşma sürerken
+yaklaşık saniyede bir güncelleniyor; kapalıyken sadece cümle bitince geliyor,
+daha az istek atıyor.
+
+## Nasıl çalışıyor
+
+1. `capture.py` sistem sesini WASAPI loopback ile alıyor, konuşmayı
+   sessizliklere göre cümlelere bölüyor.
+2. `speech.py` her parçayı Google Web Speech ile metne, deep-translator ile
+   hedef dile çeviriyor.
+3. `pipeline.py` parçaları paralel işliyor ama sonuçları geliş sırasıyla
+   yayınlıyor, altyazılar karışık sırada gelmiyor.
+4. `overlay.py` altyazıyı ekranın altında, her şeyin üstünde gösteriyor.
+   Dublaj açıksa `tts.py` çeviriyi seslendiriyor.
+
+Arayüz `main_window.py`'de. Desteklenen diller ve sesler `config.py` içindeki
+`LANGUAGES` tablosunda; yeni dil eklemek için oraya bir satır yeterli.
 
 ## Test
 
@@ -40,17 +66,18 @@ Gerçek cihaz, STT, çeviri ve TTS zincirini sınamak için:
 python selftest.py
 ```
 
-## Paketleme
-
-PyInstaller tanımları kökte tutulur. Klasör çıktısı için:
+## Exe almak
 
 ```powershell
-python -m PyInstaller --noconfirm live_translator_klasor.spec
+python -m PyInstaller --noconfirm live_translator.spec          # tek dosya
+python -m PyInstaller --noconfirm live_translator_klasor.spec   # klasör hâlinde, daha hızlı açılır
+python -m PyInstaller --noconfirm selftest.spec                 # konsol testi
 ```
 
-## Yapı
+Üç spec'in ortak ayarları `pyinstaller_ortak.py`'de. `selftest` dağıtılan
+uygulamanın parçası değil; exe içinde ses yakalama, TTS ve çeviri zincirini
+sınayıp sonucu konsola yazıyor.
 
-- `live_translator/app.py`: uygulama mantığı ve Qt arayüzü
-- `live_translator/__main__.py`: modül çalıştırma girişi
-- `tests/`: hızlı birim testleri
-- `selftest.py`: gerçek Windows ses ve çevrim içi servis testi
+## Lisans
+
+MIT
