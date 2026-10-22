@@ -16,6 +16,7 @@ from .log import LOGGER
 from .overlay import SubtitleOverlay
 from .pipeline import PipelineWorker
 from .queues import drain
+from .settings import load_config, open_settings, save_config
 from .speech import SpeechToTextService, TranslatorService
 from .tts import TTSService
 from .whisper_stt import WHISPER_MODELS
@@ -24,10 +25,19 @@ TTS_RATES = ("+0%", "+10%", "+15%", "+25%", "+40%")
 BUTTON_STYLE = "QPushButton { padding: 10px; font-weight: bold; }"
 
 
+def _select(combo: QtWidgets.QComboBox, value) -> None:
+    """Kayıtlı değer artık listede yoksa (eski sürümden kalma) varsayılan seçim kalır."""
+    index = combo.findData(value)
+    if index >= 0:
+        combo.setCurrentIndex(index)
+
+
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.config = AppConfig()
+        self._settings = open_settings()
+        load_config(self.config, self._settings)
 
         self._audio_queue: "queue.Queue[AudioSegment]" = queue.Queue(maxsize=12)
         self._speaking_flag = threading.Event()
@@ -47,6 +57,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._build_ui()
         self._connect_hotkeys()
         self._sync_config_from_ui()
+        geometry = self._settings.value("window_geometry")
+        if geometry is not None:
+            self.restoreGeometry(geometry)
         QTimer.singleShot(60, self.overlay.prime)
 
     def _build_ui(self) -> None:
@@ -85,8 +98,8 @@ class MainWindow(QtWidgets.QMainWindow):
         for code, profile in LANGUAGES.items():
             self.source_combo.addItem(profile.label, code)
             self.target_combo.addItem(profile.label, code)
-        self.source_combo.setCurrentIndex(self.source_combo.findData("en"))
-        self.target_combo.setCurrentIndex(self.target_combo.findData("tr"))
+        _select(self.source_combo, self.config.source_lang)
+        _select(self.target_combo, self.config.target_lang)
 
         layout.addWidget(QtWidgets.QLabel("Kaynak dil (videonun dili):"), 0, 0)
         layout.addWidget(self.source_combo, 0, 1)
@@ -99,7 +112,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.whisper_model_combo = QtWidgets.QComboBox()
         for size in WHISPER_MODELS:
             self.whisper_model_combo.addItem(size, size)
-        self.whisper_model_combo.setCurrentIndex(self.whisper_model_combo.findData(self.config.whisper_model))
+        _select(self.whisper_model_combo, self.config.whisper_model)
         self.whisper_model_combo.setToolTip(
             "tiny: en hızlı, base: dengeli, small: en doğru ama CPU'yu zorlar.\n"
             "Model ilk kullanımda bir kez indirilir.")
@@ -113,6 +126,7 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             self.engine_combo.setToolTip(
                 "Google seçiliyken Google sınırlarsa Whisper otomatik devreye girer.")
+            _select(self.engine_combo, self.config.stt_engine)
 
         engine_row = QtWidgets.QHBoxLayout()
         engine_row.addWidget(self.engine_combo, 1)
@@ -127,7 +141,8 @@ class MainWindow(QtWidgets.QMainWindow):
         layout = QtWidgets.QVBoxLayout(box)
         self.radio_subtitle = QtWidgets.QRadioButton("Sadece Altyazı")
         self.radio_dubbing = QtWidgets.QRadioButton("Altyazı + Dublaj (Edge-TTS)")
-        self.radio_subtitle.setChecked(True)
+        self.radio_subtitle.setChecked(not self.config.dubbing_enabled)
+        self.radio_dubbing.setChecked(self.config.dubbing_enabled)
         layout.addWidget(self.radio_subtitle)
         layout.addWidget(self.radio_dubbing)
 
@@ -136,7 +151,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.rate_combo = QtWidgets.QComboBox()
         for rate in TTS_RATES:
             self.rate_combo.addItem(rate, rate)
-        self.rate_combo.setCurrentIndex(2)
+        _select(self.rate_combo, self.config.tts_rate)
         voice_row.addWidget(QtWidgets.QLabel("Ses:"))
         voice_row.addWidget(self.voice_combo, 1)
         voice_row.addWidget(QtWidgets.QLabel("Hız:"))
@@ -144,12 +159,12 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addLayout(voice_row)
 
         self.check_show_original = QtWidgets.QCheckBox("Altyazıda orijinal metni de göster")
-        self.check_show_original.setChecked(True)
+        self.check_show_original.setChecked(self.config.show_original)
         layout.addWidget(self.check_show_original)
 
         self.check_streaming = QtWidgets.QCheckBox(
             "Akıcı mod: cümle bitmeden altyazıyı canlı akıt")
-        self.check_streaming.setChecked(True)
+        self.check_streaming.setChecked(self.config.streaming_enabled)
         self.check_streaming.setToolTip(
             "Açık: konuşma sürerken altyazı ~1 sn'de bir güncellenir (akıcı).\n"
             "Kapalı: yalnızca cümle bitince tek seferde görünür (daha az veri)."
@@ -202,6 +217,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.margin_spin.setValue(self.config.subtitle_bottom_margin)
         self.margin_spin.setToolTip("Ekranın altından yükseklik. Büyüt = altyazı yukarı çıkar.")
 
+        self.opacity_slider = QtWidgets.QSlider(Qt.Orientation.Horizontal)
+        self.opacity_slider.setRange(0, 100)
+        self.opacity_slider.setValue(self.config.subtitle_opacity)
+        self.opacity_slider.setToolTip("Altyazı zemininin koyuluğu. 0: yalnızca yazı.")
+        self.opacity_value = QtWidgets.QLabel(f"%{self.config.subtitle_opacity}")
+
         layout.addWidget(QtWidgets.QLabel("Sessizlik eşiği:"), 0, 0)
         layout.addWidget(self.threshold_slider, 0, 1)
         layout.addWidget(self.threshold_value, 0, 2)
@@ -214,13 +235,16 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.width_value, 3, 2)
         layout.addWidget(QtWidgets.QLabel("Yükseklik (alttan):"), 4, 0)
         layout.addWidget(self.margin_spin, 4, 1, 1, 2)
+        layout.addWidget(QtWidgets.QLabel("Zemin opaklığı:"), 5, 0)
+        layout.addWidget(self.opacity_slider, 5, 1)
+        layout.addWidget(self.opacity_value, 5, 2)
 
         self.level_bar = QtWidgets.QProgressBar()
         self.level_bar.setRange(0, 100)
         self.level_bar.setTextVisible(False)
         self.level_bar.setFixedHeight(10)
-        layout.addWidget(QtWidgets.QLabel("Sistem ses seviyesi:"), 5, 0)
-        layout.addWidget(self.level_bar, 5, 1, 1, 2)
+        layout.addWidget(QtWidgets.QLabel("Sistem ses seviyesi:"), 6, 0)
+        layout.addWidget(self.level_bar, 6, 1, 1, 2)
         return box
 
     def _build_buttons(self) -> QtWidgets.QHBoxLayout:
@@ -251,6 +275,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.font_spin.valueChanged.connect(self._on_appearance_changed)
         self.width_slider.valueChanged.connect(self._on_appearance_changed)
         self.margin_spin.valueChanged.connect(self._on_appearance_changed)
+        self.opacity_slider.valueChanged.connect(self._on_appearance_changed)
 
     def _connect_hotkeys(self) -> None:
         self.hotkeys.start_requested.connect(self.start_translation)
@@ -266,6 +291,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.voice_combo.clear()
         for voice in profile.voices:
             self.voice_combo.addItem(voice, voice)
+        _select(self.voice_combo, self.config.voice)
         self.voice_combo.blockSignals(False)
 
     def _on_target_changed(self) -> None:
@@ -283,7 +309,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config.subtitle_font_size = self.font_spin.value()
         self.config.subtitle_width_pct = self.width_slider.value()
         self.config.subtitle_bottom_margin = self.margin_spin.value()
+        self.config.subtitle_opacity = self.opacity_slider.value()
         self.width_value.setText(f"%{self.config.subtitle_width_pct}")
+        self.opacity_value.setText(f"%{self.config.subtitle_opacity}")
         self.overlay.apply_style()
         if not self._running:
             # ayarın etkisi hemen görülsün diye örnek altyazı
@@ -313,6 +341,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._append_warning("Kaynak ve hedef dil aynı; çeviri yapılmayacak.")
 
         self._sync_config_from_ui()
+        save_config(self.config, self._settings)
         drain(self._audio_queue)
         self._warm_up_services()
 
@@ -406,6 +435,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802 (Qt API)
         try:
             self.stop_translation()
+            save_config(self.config, self._settings)
+            self._settings.setValue("window_geometry", self.saveGeometry())
             self.hotkeys.uninstall()
             self._tts.shutdown()
             self.overlay.close()

@@ -52,6 +52,12 @@ ve konuşma hızı seçiliyor. "Akıcı mod" açıkken altyazı konuşma sürerk
 yaklaşık saniyede bir güncelleniyor; kapalıyken sadece cümle bitince geliyor,
 daha az istek atıyor.
 
+Ayarlar (diller, mod, ses, hassasiyet, altyazı boyutu/konumu/opaklığı,
+pencere konumu) kapanışta ve her Başlat'ta kaydediliyor, bir sonraki
+açılışta aynen geliyor. Windows'ta kayıt defterinde
+`HKCU\Software\LiveTranslator` altında duruyor; silinirse varsayılanlara
+dönülüyor.
+
 ## Nasıl çalışıyor
 
 1. `capture.py` sistem sesini WASAPI loopback ile alıyor, konuşmayı

@@ -77,11 +77,13 @@ class SubtitleOverlay(QtWidgets.QWidget):
         sub_font.setItalic(True)
         self._original_label.setFont(sub_font)
 
+        # Orijinal satırın zemini ana satırınkinin 0.6'sı; eskiden 120/200'dü
+        alpha = int(255 * max(0, min(100, self._config.subtitle_opacity)) / 100)
         self._translated_label.setStyleSheet(
             f"""
             QLabel {{
                 color: #FFFFFF;
-                background-color: rgba(0, 0, 0, 200);
+                background-color: rgba(0, 0, 0, {alpha});
                 border: {self._BORDER_MAIN}px solid rgba(255, 255, 255, 45);
                 border-radius: 14px;
                 padding: {self._PAD_V_MAIN}px {self._PAD_H_MAIN}px;
@@ -92,7 +94,7 @@ class SubtitleOverlay(QtWidgets.QWidget):
             f"""
             QLabel {{
                 color: #B9C4D0;
-                background-color: rgba(0, 0, 0, 120);
+                background-color: rgba(0, 0, 0, {int(alpha * 0.6)});
                 border-radius: 10px;
                 padding: {self._PAD_V_SUB}px {self._PAD_H_SUB}px;
             }}
