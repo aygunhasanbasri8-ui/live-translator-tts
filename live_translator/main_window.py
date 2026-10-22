@@ -75,7 +75,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _build_ui(self) -> None:
         self.setWindowTitle("Canlı Sistem Sesi Çevirmeni — Altyazı + Dublaj")
-        self.setMinimumSize(560, 620)
+        self.setMinimumWidth(560)
 
         central = QtWidgets.QWidget(self)
         self.setCentralWidget(central)
@@ -190,9 +190,10 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.check_streaming)
         return box
 
-    def _build_tuning_box(self) -> QtWidgets.QGroupBox:
-        box = QtWidgets.QGroupBox("Hassasiyet ve Görünüm")
-        layout = QtWidgets.QGridLayout(box)
+    def _build_tuning_box(self) -> QtWidgets.QWidget:
+        box = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(box)
+        layout.setContentsMargins(0, 0, 0, 0)
 
         self.threshold_slider = QtWidgets.QSlider(Qt.Orientation.Horizontal)
         # /10000 ile 0.0001 - 0.0500 arası. Varsayılan 0.0100 aralığın alt
@@ -250,30 +251,46 @@ class MainWindow(QtWidgets.QMainWindow):
             self.screen_combo.addItem(f"{screen.name()} ({geo.width()}x{geo.height()})", screen.name())
         _select(self.screen_combo, self.config.subtitle_screen)
 
-        layout.addWidget(QtWidgets.QLabel("Sessizlik eşiği:"), 0, 0)
-        layout.addWidget(self.threshold_slider, 0, 1)
-        layout.addWidget(self.threshold_value, 0, 2)
-        layout.addWidget(QtWidgets.QLabel("Cümle sonu bekleme:"), 1, 0)
-        layout.addWidget(self.silence_spin, 1, 1, 1, 2)
-        layout.addWidget(QtWidgets.QLabel("Altyazı yazı boyutu:"), 2, 0)
-        layout.addWidget(self.font_spin, 2, 1, 1, 2)
-        layout.addWidget(QtWidgets.QLabel("Altyazı genişliği:"), 3, 0)
-        layout.addWidget(self.width_slider, 3, 1)
-        layout.addWidget(self.width_value, 3, 2)
-        layout.addWidget(QtWidgets.QLabel("Yükseklik (alttan):"), 4, 0)
-        layout.addWidget(self.margin_spin, 4, 1, 1, 2)
-        layout.addWidget(QtWidgets.QLabel("Zemin opaklığı:"), 5, 0)
-        layout.addWidget(self.opacity_slider, 5, 1)
-        layout.addWidget(self.opacity_value, 5, 2)
-        layout.addWidget(QtWidgets.QLabel("Altyazı ekranı:"), 6, 0)
-        layout.addWidget(self.screen_combo, 6, 1, 1, 2)
+        # Hepsi alt alta tek kutudayken pencere 800 px'i aşıyor, küçük
+        # ekranlarda satırlar üst üste biniyordu; iki sekmeye bölündü.
+        sensitivity = QtWidgets.QWidget()
+        grid = QtWidgets.QGridLayout(sensitivity)
+        grid.addWidget(QtWidgets.QLabel("Sessizlik eşiği:"), 0, 0)
+        grid.addWidget(self.threshold_slider, 0, 1)
+        grid.addWidget(self.threshold_value, 0, 2)
+        grid.addWidget(QtWidgets.QLabel("Cümle sonu bekleme:"), 1, 0)
+        grid.addWidget(self.silence_spin, 1, 1, 1, 2)
+        grid.setRowStretch(2, 1)
+
+        appearance = QtWidgets.QWidget()
+        grid = QtWidgets.QGridLayout(appearance)
+        grid.addWidget(QtWidgets.QLabel("Yazı boyutu:"), 0, 0)
+        grid.addWidget(self.font_spin, 0, 1)
+        grid.addWidget(QtWidgets.QLabel("Ekran:"), 0, 2)
+        grid.addWidget(self.screen_combo, 0, 3, 1, 2)
+        grid.addWidget(QtWidgets.QLabel("Genişlik:"), 1, 0)
+        grid.addWidget(self.width_slider, 1, 1, 1, 3)
+        grid.addWidget(self.width_value, 1, 4)
+        grid.addWidget(QtWidgets.QLabel("Zemin opaklığı:"), 2, 0)
+        grid.addWidget(self.opacity_slider, 2, 1, 1, 3)
+        grid.addWidget(self.opacity_value, 2, 4)
+        grid.addWidget(QtWidgets.QLabel("Yükseklik (alttan):"), 3, 0)
+        grid.addWidget(self.margin_spin, 3, 1)
+
+        tabs = QtWidgets.QTabWidget()
+        tabs.addTab(sensitivity, "Hassasiyet")
+        tabs.addTab(appearance, "Altyazı görünümü")
 
         self.level_bar = QtWidgets.QProgressBar()
         self.level_bar.setRange(0, 100)
         self.level_bar.setTextVisible(False)
         self.level_bar.setFixedHeight(10)
-        layout.addWidget(QtWidgets.QLabel("Sistem ses seviyesi:"), 7, 0)
-        layout.addWidget(self.level_bar, 7, 1, 1, 2)
+        level_row = QtWidgets.QHBoxLayout()
+        level_row.addWidget(QtWidgets.QLabel("Sistem ses seviyesi:"))
+        level_row.addWidget(self.level_bar, 1)
+
+        layout.addWidget(tabs)
+        layout.addLayout(level_row)
         return box
 
     def _build_buttons(self) -> QtWidgets.QHBoxLayout:
