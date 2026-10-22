@@ -79,6 +79,10 @@ açılışta aynen geliyor. Windows'ta kayıt defterinde
 `HKCU\Software\LiveTranslator` altında duruyor; silinirse varsayılanlara
 dönülüyor.
 
+Günlük `%LOCALAPPDATA%\LiveTranslator\live_translator.log` dosyasına da
+yazılıyor (pencereli exe'de konsol olmadığı için sorun ararken bakılacak yer).
+Beklenmeyen bir hata uygulamayı kapatmıyor, bu dosyaya düşüyor.
+
 ## Nasıl çalışıyor
 
 1. `capture.py` sistem sesini WASAPI loopback ile alıyor, konuşmayı
