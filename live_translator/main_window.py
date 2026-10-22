@@ -19,6 +19,7 @@ from .queues import drain
 from .settings import load_config, open_settings, save_config
 from .speech import SpeechToTextService, TranslatorService
 from .transcript import Transcript
+from .tray import AppTray
 from .tts import TTSService
 from .whisper_stt import WHISPER_MODELS
 
@@ -377,25 +378,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.color_combo.currentIndexChanged.connect(self._on_appearance_changed)
 
     def _build_tray(self) -> None:
-        """Altyazı açıkken kontrol penceresi çoğu zaman ayak altında; küçültünce
-        tepsiye iniyor, başlat/durdur oradan da yapılabiliyor."""
         icon = self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MediaVolume)
         self.setWindowIcon(icon)
-        self.tray: Optional[QtWidgets.QSystemTrayIcon] = None
-        if not QtWidgets.QSystemTrayIcon.isSystemTrayAvailable():
+        self.tray = AppTray.create(icon, self)
+        if self.tray is None:
             return
-        self.tray = QtWidgets.QSystemTrayIcon(icon, self)
-        self.tray.setToolTip("Canlı Çevirmen")
-        menu = QtWidgets.QMenu(self)
-        self._tray_run_action = menu.addAction("Başlat", self._toggle_running)
-        menu.addAction("Altyazıyı gizle/göster", self._toggle_overlay)
-        menu.addAction("Pencereyi göster", self._restore_from_tray)
-        menu.addSeparator()
-        menu.addAction("Çıkış", self._quit)
-        self.tray.setContextMenu(menu)
-        self.tray.activated.connect(self._on_tray_activated)
-        self.tray.show()
-        self._tray_hint_shown = False
+        self.tray.toggle_running_requested.connect(self._toggle_running)
+        self.tray.toggle_overlay_requested.connect(self._toggle_overlay)
+        self.tray.restore_requested.connect(self._restore_from_tray)
+        self.tray.quit_requested.connect(self._quit)
 
     def _quit(self) -> None:
         # Pencere tepsideyken (gizli) close() son görünür pencere kapanmış
@@ -408,11 +399,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.stop_translation()
         else:
             self.start_translation()
-
-    def _on_tray_activated(self, reason: QtWidgets.QSystemTrayIcon.ActivationReason) -> None:
-        if reason in (QtWidgets.QSystemTrayIcon.ActivationReason.Trigger,
-                      QtWidgets.QSystemTrayIcon.ActivationReason.DoubleClick):
-            self._restore_from_tray()
 
     def _restore_from_tray(self) -> None:
         self.showNormal()
@@ -427,17 +413,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 and self.isMinimized()):
             # Doğrudan hide() olay işlenirken pencereyi yarım bırakabiliyor
             QTimer.singleShot(0, self.hide)
-            if not self._tray_hint_shown:
-                self._tray_hint_shown = True
-                self.tray.showMessage("Canlı Çevirmen", "Tepside çalışmaya devam ediyor.",
-                                      QtWidgets.QSystemTrayIcon.MessageIcon.Information, 2500)
+            self.tray.show_minimized_hint()
 
     def _update_run_state(self) -> None:
         self.start_button.setEnabled(not self._running)
         self.stop_button.setEnabled(self._running)
         if self.tray is not None:
-            self._tray_run_action.setText("Durdur" if self._running else "Başlat")
-            self.tray.setToolTip("Canlı Çevirmen — " + ("dinliyor" if self._running else "durdu"))
+            self.tray.set_running(self._running)
 
     def _connect_hotkeys(self) -> None:
         self.hotkeys.start_requested.connect(self.start_translation)
