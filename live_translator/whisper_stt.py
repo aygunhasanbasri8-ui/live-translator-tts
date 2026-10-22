@@ -23,6 +23,27 @@ def whisper_available() -> bool:
         return False
 
 
+_vad_broken = False
+
+
+def has_speech(pcm16: bytes) -> bool:
+    """faster-whisper'la gelen Silero VAD ile parçada konuşma var mı bakar.
+    Müzik ve gürültüde Google'a boşuna istek gitmesin diye; konuşmanın
+    üstünde iki kat yüksek müzik olsa bile konuşmayı kaçırmadı, parça başına
+    ~10 ms. VAD çalışmazsa "var" deyip eskisi gibi devam ediyoruz."""
+    global _vad_broken
+    if _vad_broken:
+        return True
+    try:
+        from faster_whisper.vad import VadOptions, get_speech_timestamps
+        audio = np.frombuffer(pcm16, dtype="<i2").astype(np.float32) / 32768.0
+        return bool(get_speech_timestamps(audio, VadOptions(min_speech_duration_ms=250)))
+    except Exception as exc:
+        _vad_broken = True
+        LOGGER.warning("VAD kullanılamıyor, tüm parçalar tanımaya gidecek: %s", exc)
+        return True
+
+
 class WhisperRecognizer:
     def __init__(self, model_size: str = "base") -> None:
         self._model_size = model_size

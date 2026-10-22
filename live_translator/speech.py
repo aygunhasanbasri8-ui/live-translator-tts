@@ -17,7 +17,7 @@ from deep_translator import exceptions as dt_errors
 
 from .capture import AudioSegment
 from .providers import Provider, call_first_available, describe
-from .whisper_stt import WhisperLoadError, WhisperRecognizer, whisper_available
+from .whisper_stt import WhisperLoadError, WhisperRecognizer, has_speech, whisper_available
 
 
 def _is_transient_stt(exc: Exception) -> bool:
@@ -63,6 +63,8 @@ class SpeechToTextService:
     def transcribe(self, segment: AudioSegment, language: str, engine: str = "google") -> str:
         """Anlaşılamayan ses için boş string döner. Hiçbir motor sonuç
         veremezse ServiceUnavailable fırlatır."""
+        if self.whisper is not None and not has_speech(segment.pcm16):
+            return ""
         return call_first_available(self._providers_for(engine), (segment, language),
                                     segment.is_final, _is_transient_stt)
 

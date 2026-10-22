@@ -34,6 +34,9 @@ dönebiliyor; o zaman uygulama o servise bir süre (4 sn'den başlayıp en fazla
   Whisper arayüzden doğrudan da seçilebiliyor; o zaman internet olmadan
   çalışıyor. Model (tiny/base/small) ilk kullanımda bir kez indiriliyor,
   CPU'da int8 çalışıyor. Exe'ye girmiyor, yalnızca kaynaktan çalıştırınca var.
+  Kuruluyken birlikte gelen Silero VAD da kullanılıyor: içinde konuşma
+  olmayan parçalar (müzik, gürültü) hiç tanımaya gönderilmiyor, böylece
+  Google'a giden istek ve sınırlanma ihtimali azalıyor.
 
 Hangi servisin kullanıldığı ve bekleyenler çalışırken durum çubuğunun
 sağında görünüyor (ör. `Çeviri: MyMemory (Google 16 sn ara)`).
