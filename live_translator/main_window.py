@@ -181,6 +181,10 @@ class MainWindow(QtWidgets.QMainWindow):
         voice_row.addWidget(self.voice_combo, 1)
         voice_row.addWidget(QtWidgets.QLabel("Hız:"))
         voice_row.addWidget(self.rate_combo)
+        self.preview_voice_button = QtWidgets.QToolButton()
+        self.preview_voice_button.setText("▶")
+        self.preview_voice_button.setToolTip("Seçili sesi ve hızı dinle")
+        voice_row.addWidget(self.preview_voice_button)
         layout.addLayout(voice_row)
 
         self.check_show_original = QtWidgets.QCheckBox("Altyazıda orijinal metni de göster")
@@ -333,6 +337,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.clear_transcript_button.clicked.connect(self._clear_transcript)
         self.source_combo.currentIndexChanged.connect(self._sync_config_from_ui)
         self.swap_button.clicked.connect(self._swap_languages)
+        self.preview_voice_button.clicked.connect(self._preview_voice)
         self.engine_combo.currentIndexChanged.connect(self._sync_config_from_ui)
         self.whisper_model_combo.currentIndexChanged.connect(self._sync_config_from_ui)
         self.target_combo.currentIndexChanged.connect(self._on_target_changed)
@@ -430,6 +435,24 @@ class MainWindow(QtWidgets.QMainWindow):
             self.voice_combo.addItem(voice, voice)
         _select(self.voice_combo, self.config.voice)
         self.voice_combo.blockSignals(False)
+
+    def _preview_voice(self) -> None:
+        if self._running:
+            return      # dublajın arasına girmesin
+        self._sync_config_from_ui()
+        voice, rate = self.config.voice, self.config.tts_rate
+        target = self.config.profile(self.config.target_lang).translate_code
+        sample = "Hello! This is how the dubbing will sound."
+
+        def speak() -> None:
+            try:
+                text = self._translator.translate(sample, "en", target)
+            except Exception as exc:
+                LOGGER.debug("Örnek cümle çevrilemedi: %s", exc)
+                text = sample
+            self._tts.speak(text, voice, rate)
+
+        threading.Thread(target=speak, name="VoicePreview", daemon=True).start()
 
     def _swap_languages(self) -> None:
         source = self.source_combo.currentIndex()
