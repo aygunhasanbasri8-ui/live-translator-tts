@@ -57,7 +57,12 @@ def main() -> int:
     window = MainWindow()
     window.show()
 
-    return app.exec()
+    code = app.exec()
+    # Ağda takılı bir tanıma/çeviri isteği varsa yorumlayıcı kapanışta onu
+    # bekliyor, süreç pencere kapandıktan sonra da (zaman aşımına kadar) açık
+    # kalıyordu. Ayarlar ve geçici dosyalar closeEvent'te zaten toplandı.
+    logging.shutdown()
+    os._exit(code)
 
 
 if __name__ == "__main__":
