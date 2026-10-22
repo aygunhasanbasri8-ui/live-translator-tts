@@ -57,7 +57,9 @@ class WhisperRecognizer:
                 # Her parça bağımsız; önceki metne koşullamak sessizlikte
                 # "izlediğiniz için teşekkürler" gibi uydurmaları artırıyor.
                 condition_on_previous_text=False,
-                vad_filter=False,
+                # Sessizlik ve müzikte Whisper "You", "Thank you" uyduruyor;
+                # dahili VAD bunları kesiyor, konuşmada doğruluğu değiştirmedi.
+                vad_filter=True,
             )
             return " ".join(s.text.strip() for s in segments).strip()
         finally:
