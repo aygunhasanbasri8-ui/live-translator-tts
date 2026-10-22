@@ -23,6 +23,8 @@ from .tts import TTSService
 from .whisper_stt import WHISPER_MODELS
 
 TTS_RATES = ("+0%", "+10%", "+15%", "+25%", "+40%")
+SUBTITLE_COLORS = (("Beyaz", "#FFFFFF"), ("Sarı", "#FFE14D"), ("Açık yeşil", "#B5F5A8"),
+                   ("Açık mavi", "#A8D8FF"))
 BUTTON_STYLE = "QPushButton { padding: 10px; font-weight: bold; }"
 
 
@@ -273,12 +275,20 @@ class MainWindow(QtWidgets.QMainWindow):
         grid.addWidget(self.silence_spin, 1, 1, 1, 2)
         grid.setRowStretch(2, 1)
 
+        self.color_combo = QtWidgets.QComboBox()
+        for name, color in SUBTITLE_COLORS:
+            self.color_combo.addItem(name, color)
+        _select(self.color_combo, self.config.subtitle_color)
+        self.check_show_previous = QtWidgets.QCheckBox("Önceki cümleyi de göster")
+        self.check_show_previous.setChecked(self.config.subtitle_show_previous)
+        self.check_show_previous.setToolTip("Bir önceki cümlenin çevirisi üstte soluk olarak durur.")
+
         appearance = QtWidgets.QWidget()
         grid = QtWidgets.QGridLayout(appearance)
         grid.addWidget(QtWidgets.QLabel("Yazı boyutu:"), 0, 0)
         grid.addWidget(self.font_spin, 0, 1)
-        grid.addWidget(QtWidgets.QLabel("Ekran:"), 0, 2)
-        grid.addWidget(self.screen_combo, 0, 3, 1, 2)
+        grid.addWidget(QtWidgets.QLabel("Renk:"), 0, 2)
+        grid.addWidget(self.color_combo, 0, 3, 1, 2)
         grid.addWidget(QtWidgets.QLabel("Genişlik:"), 1, 0)
         grid.addWidget(self.width_slider, 1, 1, 1, 3)
         grid.addWidget(self.width_value, 1, 4)
@@ -287,10 +297,9 @@ class MainWindow(QtWidgets.QMainWindow):
         grid.addWidget(self.opacity_value, 2, 4)
         grid.addWidget(QtWidgets.QLabel("Yükseklik (alttan):"), 3, 0)
         grid.addWidget(self.margin_spin, 3, 1)
-        self.check_show_previous = QtWidgets.QCheckBox("Önceki cümleyi de göster")
-        self.check_show_previous.setChecked(self.config.subtitle_show_previous)
-        self.check_show_previous.setToolTip("Bir önceki cümlenin çevirisi üstte soluk olarak durur.")
-        grid.addWidget(self.check_show_previous, 3, 2, 1, 3)
+        grid.addWidget(QtWidgets.QLabel("Ekran:"), 3, 2)
+        grid.addWidget(self.screen_combo, 3, 3, 1, 2)
+        grid.addWidget(self.check_show_previous, 4, 0, 1, 5)
 
         tabs = QtWidgets.QTabWidget()
         tabs.addTab(sensitivity, "Hassasiyet")
@@ -355,6 +364,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.opacity_slider.valueChanged.connect(self._on_appearance_changed)
         self.screen_combo.currentIndexChanged.connect(self._on_appearance_changed)
         self.check_show_previous.toggled.connect(self._on_appearance_changed)
+        self.color_combo.currentIndexChanged.connect(self._on_appearance_changed)
 
     def _build_tray(self) -> None:
         """Altyazı açıkken kontrol penceresi çoğu zaman ayak altında; küçültünce
@@ -477,6 +487,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config.subtitle_opacity = self.opacity_slider.value()
         self.config.subtitle_screen = self.screen_combo.currentData() or ""
         self.config.subtitle_show_previous = self.check_show_previous.isChecked()
+        self.config.subtitle_color = self.color_combo.currentData() or "#FFFFFF"
         self.width_value.setText(f"%{self.config.subtitle_width_pct}")
         self.opacity_value.setText(f"%{self.config.subtitle_opacity}")
         self.overlay.apply_style()

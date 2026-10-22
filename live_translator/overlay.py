@@ -93,7 +93,7 @@ class SubtitleOverlay(QtWidgets.QWidget):
         self._translated_label.setStyleSheet(
             f"""
             QLabel {{
-                color: #FFFFFF;
+                color: {QtGui.QColor(self._config.subtitle_color).name()};
                 background-color: rgba(0, 0, 0, {alpha});
                 border: {self._BORDER_MAIN}px solid rgba(255, 255, 255, {int(45 * opacity)});
                 border-radius: 14px;

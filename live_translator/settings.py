@@ -13,7 +13,7 @@ PERSISTED_FIELDS = (
     "stt_engine", "whisper_model", "streaming_enabled", "show_original",
     "silence_threshold", "silence_duration",
     "subtitle_font_size", "subtitle_width_pct", "subtitle_bottom_margin", "subtitle_opacity",
-    "subtitle_screen", "subtitle_show_previous",
+    "subtitle_screen", "subtitle_show_previous", "subtitle_color",
 )
 
 

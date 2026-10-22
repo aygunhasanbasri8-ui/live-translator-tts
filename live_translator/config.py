@@ -83,6 +83,7 @@ class AppConfig:
     subtitle_opacity: int = 78           # arka plan opaklığı (%), 78 ≈ eski sabit 200/255
     subtitle_screen: str = ""            # ekran adı; boşsa birincil ekran
     subtitle_show_previous: bool = False  # önceki cümlenin çevirisi üstte soluk dursun
+    subtitle_color: str = "#FFFFFF"
     show_original: bool = True
 
     mute_capture_while_dubbing: bool = True
