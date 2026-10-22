@@ -5,7 +5,7 @@ import queue
 import threading
 from typing import Optional
 
-from PyQt6 import QtGui, QtWidgets
+from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal, pyqtSlot
 
 from .audio_player import create_audio_player
@@ -66,6 +66,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._build_ui()
         self._connect_hotkeys()
+        self._build_tray()
         self._sync_config_from_ui()
         geometry = self._settings.value("window_geometry")
         if geometry is not None:
@@ -308,6 +309,63 @@ class MainWindow(QtWidgets.QMainWindow):
         self.margin_spin.valueChanged.connect(self._on_appearance_changed)
         self.opacity_slider.valueChanged.connect(self._on_appearance_changed)
 
+    def _build_tray(self) -> None:
+        """Altyazı açıkken kontrol penceresi çoğu zaman ayak altında; küçültünce
+        tepsiye iniyor, başlat/durdur oradan da yapılabiliyor."""
+        icon = self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MediaVolume)
+        self.setWindowIcon(icon)
+        self.tray: Optional[QtWidgets.QSystemTrayIcon] = None
+        if not QtWidgets.QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        self.tray = QtWidgets.QSystemTrayIcon(icon, self)
+        self.tray.setToolTip("Canlı Çevirmen")
+        menu = QtWidgets.QMenu(self)
+        self._tray_run_action = menu.addAction("Başlat", self._toggle_running)
+        menu.addAction("Altyazıyı gizle/göster", self._toggle_overlay)
+        menu.addAction("Pencereyi göster", self._restore_from_tray)
+        menu.addSeparator()
+        menu.addAction("Çıkış", self.close)
+        self.tray.setContextMenu(menu)
+        self.tray.activated.connect(self._on_tray_activated)
+        self.tray.show()
+        self._tray_hint_shown = False
+
+    def _toggle_running(self) -> None:
+        if self._running:
+            self.stop_translation()
+        else:
+            self.start_translation()
+
+    def _on_tray_activated(self, reason: QtWidgets.QSystemTrayIcon.ActivationReason) -> None:
+        if reason in (QtWidgets.QSystemTrayIcon.ActivationReason.Trigger,
+                      QtWidgets.QSystemTrayIcon.ActivationReason.DoubleClick):
+            self._restore_from_tray()
+
+    def _restore_from_tray(self) -> None:
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def changeEvent(self, event: QtCore.QEvent) -> None:  # noqa: N802 (Qt API)
+        super().changeEvent(event)
+        # Pencere kurulurken de çağrılıyor, tepsi o sırada henüz yok
+        if (getattr(self, "tray", None) is not None
+                and event.type() == QtCore.QEvent.Type.WindowStateChange
+                and self.isMinimized()):
+            # Doğrudan hide() olay işlenirken pencereyi yarım bırakabiliyor
+            QTimer.singleShot(0, self.hide)
+            if not self._tray_hint_shown:
+                self._tray_hint_shown = True
+                self.tray.showMessage("Canlı Çevirmen", "Tepside çalışmaya devam ediyor.",
+                                      QtWidgets.QSystemTrayIcon.MessageIcon.Information, 2500)
+
+    def _update_run_state(self) -> None:
+        self.start_button.setEnabled(not self._running)
+        self.stop_button.setEnabled(self._running)
+        if self.tray is not None:
+            self._tray_run_action.setText("Durdur" if self._running else "Başlat")
+            self.tray.setToolTip("Canlı Çevirmen — " + ("dinliyor" if self._running else "durdu"))
+
     def _connect_hotkeys(self) -> None:
         self.hotkeys.start_requested.connect(self.start_translation)
         self.hotkeys.stop_requested.connect(self.stop_translation)
@@ -418,8 +476,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._running = True
         self._refresh_service_status()
         self._service_timer.start()
-        self.start_button.setEnabled(False)
-        self.stop_button.setEnabled(True)
+        self._update_run_state()
         self.overlay.show()
         self.overlay.show_subtitle("", "🎧 Dinleniyor...")
         self._append_log("▶ Başlatıldı.")
@@ -440,8 +497,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._tts.clear()
         drain(self._audio_queue)
 
-        self.start_button.setEnabled(True)
-        self.stop_button.setEnabled(False)
+        self._update_run_state()
         self.level_bar.setValue(0)
         self.overlay.hide()
         self._append_log("■ Durduruldu.")
@@ -541,6 +597,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.hotkeys.uninstall()
             self._tts.shutdown()
             self.overlay.close()
+            if self.tray is not None:
+                self.tray.hide()
         except Exception as exc:
             LOGGER.warning("Kapanış sırasında hata: %s", exc)
         super().closeEvent(event)

@@ -35,6 +35,9 @@ dönebiliyor; o zaman uygulama o servise bir süre (4 sn'den başlayıp en fazla
   çalışıyor. Model (tiny/base/small) ilk kullanımda bir kez indiriliyor,
   CPU'da int8 çalışıyor. Exe'ye girmiyor, yalnızca kaynaktan çalıştırınca var.
 
+Hangi servisin kullanıldığı ve bekleyenler çalışırken durum çubuğunun
+sağında görünüyor (ör. `Çeviri: MyMemory (Google 16 sn ara)`).
+
 ## Kullanım
 
 ```powershell
@@ -52,6 +55,17 @@ ve konuşma hızı seçiliyor. "Akıcı mod" açıkken altyazı konuşma sürerk
 yaklaşık saniyede bir güncelleniyor; kapalıyken sadece cümle bitince geliyor,
 daha az istek atıyor.
 
+Dublajda çeviri çoğu zaman orijinalden uzun sürüyor. Sırada bekleyen cümle
+oldukça konuşma hızı cümle başına %10 artıyor (en fazla +%50); yine de
+12 sn'den fazla geride kalan cümle okunmadan atlanıyor, altyazısı zaten
+görülmüş oluyor. Seçilen ses Edge tarafında ses üretmiyorsa aynı dilin
+diğer sesine geçiliyor.
+
+Pencere küçültülünce tepsiye iniyor; tepsi menüsünden başlat/durdur,
+altyazıyı gizle ve çıkış yapılabiliyor. Ses çıkışı değişince (kulaklık
+takmak, varsayılan cihazı değiştirmek) ya da cihaz çıkarılınca dinleme
+birkaç saniye içinde yeni cihaza kendiliğinden geçiyor.
+
 Kesinleşen cümleler bir dökümde birikiyor; "Altyazıları kaydet..." ile
 çeviri, orijinal ya da iki dilli SRT veya düz metin olarak kaydedilebiliyor.
 Zamanlar ilk cümleye göre, yani videoyu baştan izlerken kabaca hizalı.
@@ -65,12 +79,15 @@ dönülüyor.
 ## Nasıl çalışıyor
 
 1. `capture.py` sistem sesini WASAPI loopback ile alıyor, konuşmayı
-   sessizliklere göre cümlelere bölüyor.
+   sessizliklere göre cümlelere bölüyor. Duraksamadan 6 sn'yi geçen konuşma
+   kelime ortasından değil, son 1.5 sn'nin en sessiz anından bölünüyor.
 2. `speech.py` her parçayı Google Web Speech (ya da `whisper_stt.py`) ile
    metne, Google/MyMemory ile hedef dile çeviriyor. Hangi sağlayıcının ne
    zaman atlanacağı `providers.py`'de.
 3. `pipeline.py` parçaları paralel işliyor ama sonuçları geliş sırasıyla
-   yayınlıyor, altyazılar karışık sırada gelmiyor.
+   yayınlıyor, altyazılar karışık sırada gelmiyor. Arkasından daha yenisi
+   gelmiş kısmi sonuçlar atlanıyor, bir işçi hep kesin cümleye ayrılıyor;
+   ağ yavaşken bile cümle sonu altyazısı beklemiyor.
 4. `overlay.py` altyazıyı ekranın altında, her şeyin üstünde gösteriyor.
    Dublaj açıksa `tts.py` çeviriyi seslendiriyor.
 
