@@ -47,6 +47,31 @@ class Cooldown:
             self._until = 0.0
 
 
+_ERROR_NAMES = {
+    "ConnectionError": "bağlantı kurulamadı (internet?)",
+    "ConnectTimeout": "zaman aşımı",
+    "ReadTimeout": "zaman aşımı",
+    "Timeout": "zaman aşımı",
+    "TooManyRequests": "çok fazla istek (429)",
+}
+
+
+def short_error(exc: Exception) -> str:
+    """requests'in hata metinleri URL ve iç içe nedenlerle satırlarca
+    uzuyor; kullanıcıya kısa ve anlaşılır hâlini gösteriyoruz."""
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    if status == 429:
+        return "çok fazla istek (429)"
+    if status is not None:
+        return f"HTTP {status}"
+    for cls in type(exc).__mro__:
+        if cls.__name__ in _ERROR_NAMES:
+            return _ERROR_NAMES[cls.__name__]
+    text = str(exc) or type(exc).__name__
+    return text if len(text) <= 80 else text[:77] + "..."
+
+
 @dataclass
 class Provider:
     name: str
@@ -73,9 +98,9 @@ def call_first_available(providers: Sequence[Provider], args: tuple, is_final: b
         except Exception as exc:
             if is_transient(exc):
                 delay = provider.cooldown.failed()
-                problems.append(f"{provider.name}: {exc} ({delay:.0f} sn ara)")
+                problems.append(f"{provider.name}: {short_error(exc)} ({delay:.0f} sn ara)")
             else:
-                problems.append(f"{provider.name}: {exc}")
+                problems.append(f"{provider.name}: {short_error(exc)}")
             continue
         provider.cooldown.succeeded()
         return result
