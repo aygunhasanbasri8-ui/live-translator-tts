@@ -136,6 +136,15 @@ class LoopbackAudioCapturer(QThread):
 
     _FRAMES_PER_BUFFER = 1024
     LEVEL_EMIT_HZ = 15.0                  # göstergeye bu kadarı yetiyor, Qt kuyruğu şişmesin
+    # Bu kadar süre paket gelmezse cihaz yeniden çözülüyor. Varsayılan çıkış
+    # değişince (kulaklık takılınca vb.) eski cihazın loopback'i sessizce
+    # susuyor, PortAudio da cihaz listesini ancak yeniden başlatılınca tazeliyor.
+    # Uzun duraklamada PortAudio'yu sürekli baştan açmamak için aralık her
+    # boş turda ikiye katlanıyor, ses gelince başa dönüyor.
+    IDLE_RECHECK_SEC = 3.0
+    IDLE_RECHECK_MAX_SEC = 12.0
+    MAX_CONSECUTIVE_ERRORS = 20           # ~1 sn; cihaz çıkarılınca akış hep hata veriyor
+    RECONNECT_DELAY_SEC = 1.5
 
     def __init__(self, config: AppConfig, out_queue: "queue.Queue[AudioSegment]",
                  mute_flag: threading.Event, parent: Optional[QObject] = None) -> None:
@@ -201,50 +210,97 @@ class LoopbackAudioCapturer(QThread):
         raise RuntimeError(f"Ses akışı açılamadı: {last_error}")
 
     def run(self) -> None:
-        try:
-            pa = pyaudio.PyAudio()
-        except Exception as exc:
-            self.error_occurred.emit(f"PyAudio başlatılamadı: {exc}")
-            return
+        device_name: Optional[str] = None
+        waiting_reported = False
+        idle_limit = self.IDLE_RECHECK_SEC
+        while not self._stop_event.is_set():
+            try:
+                pa, device, stream, fmt, rate, channels = self._open_session()
+            except Exception as exc:
+                if device_name is None:
+                    # İlk açılışta cihaz yoksa beklemenin anlamı yok, kullanıcıya söylüyoruz
+                    LOGGER.exception("Ses cihazı açılamadı")
+                    self.error_occurred.emit(str(exc))
+                    break
+                LOGGER.warning("Ses cihazı yeniden açılamadı: %s", exc)
+                if not waiting_reported:
+                    self.status_message.emit("⚠ Ses cihazına ulaşılamıyor, yeniden deneniyor...")
+                    waiting_reported = True
+                self._stop_event.wait(self.RECONNECT_DELAY_SEC)
+                continue
 
-        stream = None
-        try:
-            device = self._resolve_loopback_device(pa)
-            self.device_resolved.emit(str(device.get("name", "?")))
-            stream, fmt, rate, channels = self._open_stream(pa, device)
-            self.status_message.emit(f"Dinleniyor: {device['name']} ({rate} Hz / {channels} kanal)")
+            waiting_reported = False
+            name = str(device.get("name", "?"))
+            if name != device_name:
+                self.device_resolved.emit(name)
+                prefix = "Dinleniyor" if device_name is None else "Ses cihazı değişti, dinleniyor"
+                self.status_message.emit(f"{prefix}: {name} ({rate} Hz / {channels} kanal)")
+                device_name = name
 
             # Tampon cihazın kendi hızında (ör. 48 kHz) tutulup segment bitince
             # tek seferde 16 kHz'e indiriliyor. Blok blok örneklenseydi her blok
             # sınırında filtre tıklaması oluşur, tanıma kötüleşirdi.
             segmenter = SpeechSegmenter(
                 self._config, rate,
-                lambda chunks, duration, is_final, uid: self._flush(chunks, duration, rate, is_final, uid))
-            self._capture_loop(stream, fmt, channels, segmenter)
-            segmenter.finish()
+                lambda chunks, duration, is_final, uid, r=rate: self._flush(chunks, duration, r, is_final, uid))
+            try:
+                got_data = self._capture_loop(stream, fmt, channels, segmenter, idle_limit)
+                segmenter.finish()
+                idle_limit = (self.IDLE_RECHECK_SEC if got_data
+                              else min(idle_limit * 2, self.IDLE_RECHECK_MAX_SEC))
+            except Exception as exc:
+                LOGGER.exception("Yakalama döngüsü hatası")
+                self.error_occurred.emit(str(exc))
+                break
+            finally:
+                self._close_session(pa, stream)
+        self.status_message.emit("Dinleme durduruldu.")
+
+    def _open_session(self):
+        try:
+            pa = pyaudio.PyAudio()
         except Exception as exc:
-            LOGGER.exception("Yakalama döngüsü hatası")
-            self.error_occurred.emit(str(exc))
-        finally:
-            if stream is not None:
-                with contextlib.suppress(Exception):
-                    stream.stop_stream()
-                    stream.close()
+            raise RuntimeError(f"PyAudio başlatılamadı: {exc}") from exc
+        try:
+            device = self._resolve_loopback_device(pa)
+            stream, fmt, rate, channels = self._open_stream(pa, device)
+        except Exception:
             with contextlib.suppress(Exception):
                 pa.terminate()
-            self.status_message.emit("Dinleme durduruldu.")
+            raise
+        return pa, device, stream, fmt, rate, channels
 
-    def _capture_loop(self, stream, fmt: int, channels: int, segmenter: SpeechSegmenter) -> None:
+    @staticmethod
+    def _close_session(pa, stream) -> None:
+        with contextlib.suppress(Exception):
+            stream.stop_stream()
+            stream.close()
+        with contextlib.suppress(Exception):
+            pa.terminate()
+
+    def _capture_loop(self, stream, fmt: int, channels: int, segmenter: SpeechSegmenter,
+                      idle_limit: float) -> bool:
+        """Durdurulunca, akış kopunca ya da idle_limit boyunca paket gelmeyince
+        döner; son ikisinde run() cihazı baştan çözüp yeniden açıyor. Hiç
+        paket okunduysa True."""
         dtype = np.int16 if fmt == pyaudio.paInt16 else np.float32
         scale = 1.0 / 32768.0 if fmt == pyaudio.paInt16 else 1.0
+        errors = 0
+        got_data = False
+        last_data_at = time.monotonic()
 
         while not self._stop_event.is_set():
+            if errors >= self.MAX_CONSECUTIVE_ERRORS:
+                LOGGER.warning("Ses akışı art arda hata veriyor, cihaz yeniden açılıyor.")
+                return got_data
+
             # Hiçbir şey çalmıyorken loopback paket üretmiyor ve read() bloklanıyor;
             # önce hazır kare var mı diye bakınca Durdur beklemeden işleniyor.
             try:
                 available = stream.get_read_available()
             except Exception as exc:
-                LOGGER.warning("Ses akışı sorgulanamadı: %s", exc)
+                errors += 1
+                LOGGER.debug("Ses akışı sorgulanamadı: %s", exc)
                 time.sleep(0.05)
                 continue
 
@@ -253,15 +309,21 @@ class LoopbackAudioCapturer(QThread):
                     segmenter.on_no_data(time.time())
                 else:
                     self._emit_level(0.0)
+                    if time.monotonic() - last_data_at >= idle_limit:
+                        return got_data
                 time.sleep(0.02)
                 continue
 
             try:
                 raw = stream.read(min(available, self._FRAMES_PER_BUFFER), exception_on_overflow=False)
             except Exception as exc:
-                LOGGER.warning("Ses okuma hatası: %s", exc)
+                errors += 1
+                LOGGER.debug("Ses okuma hatası: %s", exc)
                 time.sleep(0.05)
                 continue
+            errors = 0
+            got_data = True
+            last_data_at = time.monotonic()
 
             block = np.frombuffer(raw, dtype=dtype).astype(np.float32) * scale
             mono = AudioMath.to_mono(block, channels)
@@ -276,6 +338,7 @@ class LoopbackAudioCapturer(QThread):
                 segmenter.reset()
                 continue
             segmenter.feed(mono, level, now)
+        return got_data
 
     def _is_muted(self, now: float) -> bool:
         """Dublaj çalarken ve bittikten kısa süre sonrasına kadar yakalamayı
