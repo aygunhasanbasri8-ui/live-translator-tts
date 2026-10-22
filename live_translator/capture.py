@@ -42,6 +42,10 @@ class SpeechSegmenter:
     """Sessizliğe bakarak konuşmayı cümlelere ayırır. Cümle bitince, çok
     uzayınca ya da kısmi sonuç zamanı gelince sink'i çağırır."""
 
+    # Zorla kesmek gerekince kesim noktası son bu kadar saniyedeki en sessiz an
+    SPLIT_SEARCH_SEC = 1.5
+    _SPLIT_WINDOW_SEC = 0.06   # 20 ms patlamalı ünsüzlerin içine denk gelip kelime bölüyordu
+
     def __init__(self, config: AppConfig, rate: int, sink: SegmentSink) -> None:
         self._config = config
         self._rate = rate
@@ -83,8 +87,10 @@ class SpeechSegmenter:
             self._silence_started = now
 
         duration = self._duration()
-        if self._silence_elapsed(now) or duration >= cfg.max_segment_sec:
+        if self._silence_elapsed(now):
             self._end_utterance(duration)
+        elif duration >= cfg.max_segment_sec:
+            self._split_long_utterance(now)
         elif (cfg.streaming_enabled
               and duration >= cfg.partial_min_sec
               and (now - self._last_partial_at) >= cfg.partial_interval_sec):
@@ -118,6 +124,29 @@ class SpeechSegmenter:
     def _silence_elapsed(self, now: float) -> bool:
         return (self._silence_started is not None
                 and (now - self._silence_started) >= self._config.silence_duration)
+
+    def _split_long_utterance(self, now: float) -> None:
+        """Duraksamadan süren konuşmada max_segment_sec'te kör kesmek kelimeyi
+        ortadan bölüyor, iki yarısı da yanlış tanınıyordu. Son birkaç saniyenin
+        en sessiz noktasından bölüp kalanı yeni cümlenin başına taşıyoruz."""
+        audio = np.concatenate(self._buffer)
+        window = max(1, int(self._SPLIT_WINDOW_SEC * self._rate))
+        search = min(audio.size // 2, int(self.SPLIT_SEARCH_SEC * self._rate))
+        count = search // window
+        if count < 2:
+            self._end_utterance(self._duration())
+            return
+        start = audio.size - search
+        energy = np.square(audio[start:start + count * window].reshape(count, window)).mean(axis=1)
+        cut = start + int(np.argmin(energy)) * window + window // 2
+
+        head, rest = audio[:cut], audio[cut:]
+        self._sink([head], head.size / float(self._rate), True, self._utterance_id)
+        self._utterance_id += 1
+        self._buffer = [rest]
+        self._samples = rest.size
+        self._silence_started = None
+        self._last_partial_at = now
 
     def _end_utterance(self, duration: float) -> None:
         self._sink(self._buffer, duration, True, self._utterance_id)
