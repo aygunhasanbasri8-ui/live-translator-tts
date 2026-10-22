@@ -324,11 +324,17 @@ class MainWindow(QtWidgets.QMainWindow):
         menu.addAction("Altyazıyı gizle/göster", self._toggle_overlay)
         menu.addAction("Pencereyi göster", self._restore_from_tray)
         menu.addSeparator()
-        menu.addAction("Çıkış", self.close)
+        menu.addAction("Çıkış", self._quit)
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(self._on_tray_activated)
         self.tray.show()
         self._tray_hint_shown = False
+
+    def _quit(self) -> None:
+        # Pencere tepsideyken (gizli) close() son görünür pencere kapanmış
+        # sayılmıyor ve uygulama arkada açık kalıyordu.
+        self.close()
+        QtWidgets.QApplication.quit()
 
     def _toggle_running(self) -> None:
         if self._running:
