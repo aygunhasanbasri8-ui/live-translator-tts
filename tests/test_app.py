@@ -55,3 +55,22 @@ def test_google_continuous_response_joins_all_final_phrases():
 
     assert parse_google_stt(body) == "first part second part"
     assert parse_google_stt('{"result":[]}\n') == ""
+
+
+def test_long_speech_is_split_at_the_quietest_point_not_mid_word():
+    from live_translator.capture import SpeechSegmenter
+
+    rate = 16000
+    speech = np.full(rate * 7, 0.2, dtype=np.float32)
+    gap_at = int(rate * 5.2)
+    speech[gap_at:gap_at + int(rate * 0.1)] = 0.0   # sessizlik sayılmayacak kadar kısa bir duraklama
+    finals = []
+    segmenter = SpeechSegmenter(AppConfig(streaming_enabled=False), rate,
+                                lambda chunks, duration, is_final, uid, ago: finals.append(duration))
+
+    for start in range(0, speech.size, 1024):
+        block = speech[start:start + 1024]
+        segmenter.feed(block, 0.2, start / rate)
+
+    assert len(finals) == 1
+    assert 5.2 <= finals[0] <= 5.3
