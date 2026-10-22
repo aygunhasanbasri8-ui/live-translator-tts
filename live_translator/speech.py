@@ -16,7 +16,7 @@ from deep_translator import GoogleTranslator
 from deep_translator import exceptions as dt_errors
 
 from .capture import AudioSegment
-from .providers import Provider, call_first_available
+from .providers import Provider, call_first_available, describe
 from .whisper_stt import WhisperLoadError, WhisperRecognizer, whisper_available
 
 
@@ -63,11 +63,16 @@ class SpeechToTextService:
     def transcribe(self, segment: AudioSegment, language: str, engine: str = "google") -> str:
         """Anlaşılamayan ses için boş string döner. Hiçbir motor sonuç
         veremezse ServiceUnavailable fırlatır."""
+        return call_first_available(self._providers_for(engine), (segment, language),
+                                    segment.is_final, _is_transient_stt)
+
+    def status(self, engine: str = "google") -> str:
+        return describe(self._providers_for(engine))
+
+    def _providers_for(self, engine: str) -> list[Provider]:
         if engine == "whisper" and self._local is not None:
-            providers = [self._local]
-        else:
-            providers = [self._google] + ([self._local] if self._local is not None else [])
-        return call_first_available(providers, (segment, language), segment.is_final, _is_transient_stt)
+            return [self._local]
+        return [self._google] + ([self._local] if self._local is not None else [])
 
     def _google_transcribe(self, segment: AudioSegment, language: str) -> str:
         # recognize_google yerine kendimiz çağırıyoruz: o "continuous" olmadan
@@ -137,6 +142,9 @@ class TranslatorService:
                 self._cache.pop(next(iter(self._cache)))
             self._cache[key] = translated
         return translated
+
+    def status(self) -> str:
+        return describe(self._providers)
 
     @staticmethod
     def _google(text: str, source: str, target: str) -> str:

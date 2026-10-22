@@ -80,3 +80,12 @@ def call_first_available(providers: Sequence[Provider], args: tuple, is_final: b
         provider.cooldown.succeeded()
         return result
     raise ServiceUnavailable("; ".join(problems) or "uygun sağlayıcı yok")
+
+
+def describe(providers: Sequence[Provider]) -> str:
+    """Durum çubuğu için: şu an kullanılan sağlayıcı ve beklemedekiler."""
+    waiting = [f"{p.name} {p.cooldown.remaining():.0f} sn ara" for p in providers if p.cooldown.active()]
+    current = next((p.name for p in providers if not p.cooldown.active()), None)
+    if current is None:
+        return "bekleniyor (" + ", ".join(waiting) + ")"
+    return current + (f" ({', '.join(waiting)})" if waiting else "")

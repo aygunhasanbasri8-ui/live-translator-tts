@@ -93,6 +93,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.status_bar = self.statusBar()
         self.status_bar.showMessage("Hazır.")
+        # Google sınırladığında altyazının neden yavaşladığı/yedekten geldiği görünsün
+        self.service_label = QtWidgets.QLabel()
+        self.status_bar.addPermanentWidget(self.service_label)
+        self._service_timer = QTimer(self)
+        self._service_timer.setInterval(1000)
+        self._service_timer.timeout.connect(self._refresh_service_status)
 
         self._connect_ui_signals()
         self._refresh_voices()
@@ -384,6 +390,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._capturer.start()
 
         self._running = True
+        self._refresh_service_status()
+        self._service_timer.start()
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
         self.overlay.show()
@@ -395,6 +403,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self._running:
             return
         self._running = False
+        self._service_timer.stop()
+        self.service_label.clear()
 
         self._stop_worker(self._capturer, 4000, "Yakalayıcı")
         self._capturer = None
@@ -470,6 +480,12 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(self, "Kaydedilemedi", str(exc))
             return
         self._append_log(f"💾 Kaydedildi: {path}")
+
+    def _refresh_service_status(self) -> None:
+        stt = self._stt.status(self.config.stt_engine)
+        translation = ("—" if self.config.source_lang == self.config.target_lang
+                       else self._translator.status())
+        self.service_label.setText(f"Tanıma: {stt}  ·  Çeviri: {translation}")
 
     @pyqtSlot(float)
     def _on_level(self, level: float) -> None:
