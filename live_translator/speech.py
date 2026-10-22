@@ -8,6 +8,7 @@ from __future__ import annotations
 import html
 import json
 import threading
+import time
 from typing import Optional
 
 import deep_translator.google
@@ -19,6 +20,28 @@ from deep_translator import exceptions as dt_errors
 from .capture import AudioSegment
 from .providers import Provider, call_first_available, describe
 from .whisper_stt import WhisperLoadError, WhisperRecognizer, has_speech, whisper_available
+
+
+class _KeepAliveSession(requests.Session):
+    """Bağlantıyı açık tutmak her istekte TLS kurulumunu atlatıyor. Ama uzun
+    duraklamadan (video durdu, bilgisayar uyudu, ağ değişti) sonra havuzdaki
+    bağlantı ölmüş olabiliyor; ilk istek hata verip servisi boşuna beklemeye
+    alıyordu. Bir süredir kullanılmadıysa havuzu boşaltıp temiz açıyoruz."""
+
+    IDLE_RESET_SEC = 60.0
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._idle_lock = threading.Lock()
+        self._last_used = time.monotonic()
+
+    def request(self, *args, **kwargs):
+        with self._idle_lock:
+            now = time.monotonic()
+            if now - self._last_used > self.IDLE_RESET_SEC:
+                self.close()
+            self._last_used = now
+        return super().request(*args, **kwargs)
 
 
 def _is_transient_stt(exc: Exception) -> bool:
@@ -52,8 +75,7 @@ class SpeechToTextService:
     _GOOGLE_TIMEOUT_SEC = 12    # ağ takılırsa sonsuza kadar beklemesin
 
     def __init__(self, whisper: Optional[WhisperRecognizer] = None) -> None:
-        # Bağlantıyı açık tutmak her segmentte TLS el sıkışmasını atlatıyor
-        self._session = requests.Session()
+        self._session = _KeepAliveSession()
 
         if whisper is None and whisper_available():
             whisper = WhisperRecognizer()
@@ -141,7 +163,7 @@ class TranslatorService:
     def __init__(self) -> None:
         self._cache: dict[tuple[str, str, str], str] = {}
         self._lock = threading.Lock()
-        self._session = requests.Session()
+        self._session = _KeepAliveSession()
         deep_translator.google.requests = _PooledRequests(self._session, timeout=6)
         self._providers = (
             Provider("Google", self._google_api),
