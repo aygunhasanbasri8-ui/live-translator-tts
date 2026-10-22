@@ -218,4 +218,5 @@ class PipelineWorker(QThread):
                                  original, translated)
 
         if self._config.dubbing_enabled and translated:
-            self._tts.speak(translated, self._config.voice, self._config.tts_rate)
+            self._tts.speak(translated, self._config.voice, self._config.tts_rate,
+                            self._config.profile(self._config.target_lang).voices)

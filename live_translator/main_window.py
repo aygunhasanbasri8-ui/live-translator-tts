@@ -6,7 +6,7 @@ import threading
 from typing import Optional
 
 from PyQt6 import QtGui, QtWidgets
-from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSlot
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal, pyqtSlot
 
 from .audio_player import create_audio_player
 from .capture import AudioSegment, LoopbackAudioCapturer
@@ -34,6 +34,10 @@ def _select(combo: QtWidgets.QComboBox, value) -> None:
 
 
 class MainWindow(QtWidgets.QMainWindow):
+    # TTS hataları kendi thread'inden geliyor; widget'a oradan dokunmak Qt'yi
+    # çökertebildiği için sinyalle ana thread'e taşıyoruz.
+    _tts_warning = pyqtSignal(str)
+
     def __init__(self) -> None:
         super().__init__()
         self.config = AppConfig()
@@ -45,7 +49,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._stt = SpeechToTextService()
         self._translator = TranslatorService()
         self._tts = TTSService(create_audio_player(), self._speaking_flag,
-                               on_error=self._append_warning)
+                               on_error=self._tts_warning.emit)
+        self._tts_warning.connect(self._append_warning)
         self._tts.start()
 
         self._capturer: Optional[LoopbackAudioCapturer] = None

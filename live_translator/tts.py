@@ -12,10 +12,11 @@ import queue
 import tempfile
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 import edge_tts
+from edge_tts.exceptions import NoAudioReceived
 
 from .audio_player import IAudioPlayer
 from .log import LOGGER
@@ -28,10 +29,29 @@ class TTSRequest:
     voice: str
     rate: str
     epoch: int = 0      # bkz. TTSService._epoch
+    alternatives: tuple[str, ...] = ()   # ses çalışmazsa denenecek aynı dildeki sesler
+    created_at: float = field(default_factory=time.monotonic)
+
+
+def speed_up(rate: str, backlog: int, step_pct: int, max_pct: int) -> str:
+    """'+15%' gibi hızı sırada bekleyen cümle başına step_pct artırır."""
+    try:
+        base = int(rate.strip().rstrip("%"))
+    except ValueError:
+        return rate
+    if backlog <= 0 or base >= max_pct:
+        return rate
+    return f"{min(max_pct, base + backlog * step_pct):+d}%"
 
 
 class TTSService:
     PREFETCH = 3  # sentezlenip çalınmayı bekleyebilecek cümle sayısı
+    # Çeviri çoğu zaman orijinalden uzun sürüyor ve dublaj videonun gerisinde
+    # kalıyor. Sırada bekleyen cümle başına biraz hızlanıyoruz; yine de çok
+    # eskiyen cümleyi okumak yerine atlıyoruz, altyazısı zaten gösterildi.
+    CATCH_UP_STEP_PCT = 10
+    CATCH_UP_MAX_PCT = 50
+    MAX_LAG_SEC = 12.0
 
     def __init__(self, player: IAudioPlayer, speaking_flag: threading.Event,
                  on_error: Optional[Callable[[str], None]] = None) -> None:
@@ -52,6 +72,9 @@ class TTSService:
         self._tmp_dir = os.path.join(tempfile.gettempdir(), "live_translator_tts")
         os.makedirs(self._tmp_dir, exist_ok=True)
         self._seq = itertools.count(1)
+        # Edge listesinde görünüp ses üretmeyen sesler oluyor (ör. bir ara
+        # tr-TR-AhmetNeural); oturum boyunca yedeğine gidiyoruz.
+        self._broken_voices: set[str] = set()
 
     def start(self) -> None:
         if not self._synth_thread.is_alive():
@@ -59,11 +82,12 @@ class TTSService:
             self._synth_thread.start()
             self._play_thread.start()
 
-    def speak(self, text: str, voice: str, rate: str) -> None:
+    def speak(self, text: str, voice: str, rate: str, alternatives: tuple[str, ...] = ()) -> None:
         if not text.strip():
             return
         with self._epoch_lock:
-            request = TTSRequest(text=text.strip(), voice=voice, rate=rate, epoch=self._epoch)
+            request = TTSRequest(text=text.strip(), voice=voice, rate=rate, epoch=self._epoch,
+                                 alternatives=tuple(v for v in alternatives if v != voice))
         if put_dropping_oldest(self._synth_queue, request):
             LOGGER.info("TTS kuyruğu doldu, en eski cümle atlandı.")
 
@@ -105,10 +129,10 @@ class TTSService:
 
                 path = os.path.join(self._tmp_dir,
                                     f"tts_{next(self._seq)}_{int(time.time()*1000)}.mp3")
+                backlog = self._synth_queue.qsize() + self._play_queue.qsize()
+                rate = speed_up(request.rate, backlog, self.CATCH_UP_STEP_PCT, self.CATCH_UP_MAX_PCT)
                 try:
-                    loop.run_until_complete(self._synthesize(request, path))
-                    if not os.path.exists(path) or os.path.getsize(path) == 0:
-                        raise RuntimeError("Edge-TTS boş ses üretti")
+                    self._synthesize_with_fallback(loop, request, rate, path)
                 except Exception as exc:
                     LOGGER.warning("TTS sentez hatası: %s", exc)
                     self._on_error(f"TTS hatası: {exc}")
@@ -124,7 +148,7 @@ class TTSService:
                 # oynatmanın çok önüne geçmesini bu engelliyor.
                 while self._running.is_set() and not self._is_stale(request.epoch):
                     try:
-                        self._play_queue.put((path, request.epoch), timeout=0.25)
+                        self._play_queue.put((path, request.epoch, request.created_at), timeout=0.25)
                         break
                     except queue.Full:
                         continue
@@ -133,8 +157,40 @@ class TTSService:
         finally:
             loop.close()
 
-    async def _synthesize(self, request: TTSRequest, path: str) -> None:
-        communicate = edge_tts.Communicate(request.text, request.voice, rate=request.rate)
+    def _synthesize_with_fallback(self, loop: asyncio.AbstractEventLoop, request: TTSRequest,
+                                  rate: str, path: str) -> None:
+        voices = [v for v in (request.voice, *request.alternatives) if v not in self._broken_voices]
+        if not voices:
+            voices = [request.voice]
+        silent: list[str] = []
+        last_error: Optional[Exception] = None
+        for voice in voices:
+            # Ağ hatasında aynı sesle bir kez daha deniyoruz; ses üretmeyen
+            # seste beklemenin anlamı yok, hemen sıradakine geçiyoruz.
+            for _attempt in range(2):
+                try:
+                    loop.run_until_complete(self._synthesize(request.text, voice, rate, path))
+                    if not os.path.exists(path) or os.path.getsize(path) == 0:
+                        raise NoAudioReceived("Edge-TTS boş ses üretti")
+                except NoAudioReceived as exc:
+                    silent.append(voice)
+                    last_error = exc
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    continue
+                # Metin yüzünden ses çıkmıyorsa her ses susar; "bozuk" demek
+                # için başka bir sesin aynı metni okuyabilmesi gerekiyor.
+                for bad in silent:
+                    if bad not in self._broken_voices:
+                        self._broken_voices.add(bad)
+                        self._on_error(f"{bad} sesi şu an ses üretmiyor, {voice} kullanılıyor.")
+                return
+        raise last_error or RuntimeError("Edge-TTS ses üretemedi")
+
+    @staticmethod
+    async def _synthesize(text: str, voice: str, rate: str, path: str) -> None:
+        communicate = edge_tts.Communicate(text, voice, rate=rate)
         await communicate.save(path)
 
     def _play_worker(self) -> None:
@@ -146,10 +202,11 @@ class TTSService:
                 continue
             if item is None:
                 break
-            path, epoch = item
-            if self._is_stale(epoch):
+            path, epoch, created_at = item
+            if self._is_stale(epoch) or time.monotonic() - created_at > self.MAX_LAG_SEC:
                 self._discard(path)
-                self._speaking.clear()
+                if self._play_queue.empty():
+                    self._speaking.clear()
                 continue
             try:
                 self._speaking.set()
