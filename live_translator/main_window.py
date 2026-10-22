@@ -241,6 +241,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.opacity_slider.setToolTip("Altyazı zemininin koyuluğu. 0: yalnızca yazı.")
         self.opacity_value = QtWidgets.QLabel(f"%{self.config.subtitle_opacity}")
 
+        self.screen_combo = QtWidgets.QComboBox()
+        self.screen_combo.addItem("Birincil ekran", "")
+        for screen in QtWidgets.QApplication.screens():
+            if not screen.name():
+                continue
+            geo = screen.geometry()
+            self.screen_combo.addItem(f"{screen.name()} ({geo.width()}x{geo.height()})", screen.name())
+        _select(self.screen_combo, self.config.subtitle_screen)
+
         layout.addWidget(QtWidgets.QLabel("Sessizlik eşiği:"), 0, 0)
         layout.addWidget(self.threshold_slider, 0, 1)
         layout.addWidget(self.threshold_value, 0, 2)
@@ -256,13 +265,15 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(QtWidgets.QLabel("Zemin opaklığı:"), 5, 0)
         layout.addWidget(self.opacity_slider, 5, 1)
         layout.addWidget(self.opacity_value, 5, 2)
+        layout.addWidget(QtWidgets.QLabel("Altyazı ekranı:"), 6, 0)
+        layout.addWidget(self.screen_combo, 6, 1, 1, 2)
 
         self.level_bar = QtWidgets.QProgressBar()
         self.level_bar.setRange(0, 100)
         self.level_bar.setTextVisible(False)
         self.level_bar.setFixedHeight(10)
-        layout.addWidget(QtWidgets.QLabel("Sistem ses seviyesi:"), 6, 0)
-        layout.addWidget(self.level_bar, 6, 1, 1, 2)
+        layout.addWidget(QtWidgets.QLabel("Sistem ses seviyesi:"), 7, 0)
+        layout.addWidget(self.level_bar, 7, 1, 1, 2)
         return box
 
     def _build_buttons(self) -> QtWidgets.QHBoxLayout:
@@ -308,6 +319,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.width_slider.valueChanged.connect(self._on_appearance_changed)
         self.margin_spin.valueChanged.connect(self._on_appearance_changed)
         self.opacity_slider.valueChanged.connect(self._on_appearance_changed)
+        self.screen_combo.currentIndexChanged.connect(self._on_appearance_changed)
 
     def _build_tray(self) -> None:
         """Altyazı açıkken kontrol penceresi çoğu zaman ayak altında; küçültünce
@@ -405,6 +417,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config.subtitle_width_pct = self.width_slider.value()
         self.config.subtitle_bottom_margin = self.margin_spin.value()
         self.config.subtitle_opacity = self.opacity_slider.value()
+        self.config.subtitle_screen = self.screen_combo.currentData() or ""
         self.width_value.setText(f"%{self.config.subtitle_width_pct}")
         self.opacity_value.setText(f"%{self.config.subtitle_opacity}")
         self.overlay.apply_style()

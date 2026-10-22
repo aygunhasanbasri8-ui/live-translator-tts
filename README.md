@@ -64,6 +64,9 @@ oldukça konuşma hızı cümle başına %10 artıyor (en fazla +%50); yine de
 görülmüş oluyor. Seçilen ses Edge tarafında ses üretmiyorsa aynı dilin
 diğer sesine geçiliyor.
 
+Birden fazla monitörde altyazının hangi ekranda çıkacağı "Altyazı ekranı"
+ayarından seçiliyor; o ekran çıkarılırsa birincil ekrana dönülüyor.
+
 Pencere küçültülünce tepsiye iniyor; tepsi menüsünden başlat/durdur,
 altyazıyı gizle ve çıkış yapılabiliyor. Ses çıkışı değişince (kulaklık
 takmak, varsayılan cihazı değiştirmek) ya da cihaz çıkarılınca dinleme

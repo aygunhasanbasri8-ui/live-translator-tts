@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import sys
+from typing import Optional
 
 from PyQt6 import QtGui, QtWidgets
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot
@@ -121,7 +122,7 @@ class SubtitleOverlay(QtWidgets.QWidget):
     def reposition(self) -> None:
         """Genişlik ayardan, yükseklik içerikten geliyor. Sabit yükseklikte
         3-4 satırlık uzun çeviriler kırpılıp altyazı gelmemiş gibi görünüyordu."""
-        screen = QtWidgets.QApplication.primaryScreen()
+        screen = self._target_screen()
         if screen is None:
             return
         geo = screen.availableGeometry()
@@ -163,6 +164,15 @@ class SubtitleOverlay(QtWidgets.QWidget):
         x = geo.x() + (geo.width() - width) // 2
         y = geo.y() + geo.height() - height - self._config.subtitle_bottom_margin
         self.setGeometry(x, max(geo.y(), y), width, height)
+
+    def _target_screen(self) -> Optional[QtGui.QScreen]:
+        # Video çoğu zaman ikinci ekranda oynuyor; seçilen ekran çıkarıldıysa birincile dön
+        name = self._config.subtitle_screen
+        if name:
+            for screen in QtWidgets.QApplication.screens():
+                if screen.name() == name:
+                    return screen
+        return QtWidgets.QApplication.primaryScreen()
 
     @pyqtSlot(str, str)
     def show_subtitle(self, original: str, translated: str) -> None:
