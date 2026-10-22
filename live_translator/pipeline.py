@@ -48,6 +48,10 @@ class PipelineWorker(QThread):
         self._pending: "collections.deque[Future]" = collections.deque()
         self._cv = threading.Condition()
         self._last_report_at: dict[str, float] = {}
+        self._submitted = 0
+        # Bir işçi hep kesin segmentlere boş kalsın; yoksa süren kısmiler
+        # bitene kadar cümle sonu altyazısı bekliyor.
+        self._partial_slots = threading.Semaphore(self.MAX_WORKERS - 1)
         self._report_lock = threading.Lock()
 
     def stop(self) -> None:
@@ -76,7 +80,10 @@ class PipelineWorker(QThread):
                 if self._stop_event.is_set():
                     break
 
-                future = executor.submit(self._process, segment)
+                with self._cv:
+                    self._submitted += 1
+                    seq = self._submitted
+                future = executor.submit(self._process, segment, seq)
                 with self._cv:
                     self._pending.append(future)
                     self.busy_changed.emit(True)
@@ -92,9 +99,28 @@ class PipelineWorker(QThread):
             executor.shutdown(wait=False, cancel_futures=True)
             self.busy_changed.emit(False)
 
-    def _process(self, segment: AudioSegment) -> Optional[tuple[str, str, AudioSegment]]:
+    def _is_superseded(self, segment: AudioSegment, seq: int) -> bool:
+        """Arkasından yeni segment gelmiş bir kısmi artık gösterilmeye değmez.
+        Ağ yavaşken bunları da işlemek işçileri tıkıyor, kesin altyazı
+        saniyelerce gecikiyordu; atlamak ayrıca istek sayısını azaltıyor."""
+        return not segment.is_final and seq != self._submitted
+
+    def _process(self, segment: AudioSegment, seq: int) -> Optional[tuple[str, str, AudioSegment]]:
         # Kısmi sonuçların hatası ve anlaşılamaması olağan (cümle yarım),
         # kullanıcıya yalnızca kesinleşmiş segmentlerinkini gösteriyoruz.
+        if self._is_superseded(segment, seq):
+            return None
+        if segment.is_final:
+            return self._recognize_and_translate(segment, seq)
+        if not self._partial_slots.acquire(blocking=False):
+            return None
+        try:
+            return self._recognize_and_translate(segment, seq)
+        finally:
+            self._partial_slots.release()
+
+    def _recognize_and_translate(self, segment: AudioSegment,
+                                 seq: int) -> Optional[tuple[str, str, AudioSegment]]:
         cfg = self._config
         src_profile = cfg.profile(cfg.source_lang)
         tgt_profile = cfg.profile(cfg.target_lang)
@@ -111,6 +137,8 @@ class PipelineWorker(QThread):
         if not original:
             if segment.is_final:
                 self.log_message.emit(f"🔈 ({segment.duration:.1f} sn ses anlaşılamadı)")
+            return None
+        if self._is_superseded(segment, seq):
             return None
 
         try:
