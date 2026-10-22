@@ -1,8 +1,8 @@
 """Konuşmayı metne, metni hedef dile çevirir.
 
 Tanıma: Google Web Speech; faster-whisper kuruluysa yerel Whisper da seçilebiliyor
-ve Google sınırladığında yedek oluyor. Çeviri: Google (deep-translator), o
-sınırladığında MyMemory."""
+ve Google sınırladığında yedek oluyor. Çeviri: Google'ın iki ayrı ücretsiz ucu,
+ikisi de sınırladığında MyMemory."""
 from __future__ import annotations
 
 import html
@@ -131,6 +131,12 @@ class TranslatorService:
 
     _CACHE_LIMIT = 256
     _MYMEMORY_URL = "https://api.mymemory.translated.net/get"
+    # Google Translate web sayfasının kendi kullandığı uç ve sayfaya gömülü
+    # herkese açık anahtar. deep-translator'ın kazıdığı mobil sayfadan ayrı
+    # sınırlanıyor (bu makinede o 429 verirken bu çalıştı) ve JSON döndüğü
+    # için hızlı: ölçümde medyan 0.22 sn.
+    _GOOGLE_API_URL = "https://translate-pa.googleapis.com/v1/translate"
+    _GOOGLE_API_KEY = "AIzaSyDLEeFI5OtFBwYBIoK_jj5m32rZK5CkCXA"
 
     def __init__(self) -> None:
         self._cache: dict[tuple[str, str, str], str] = {}
@@ -138,7 +144,8 @@ class TranslatorService:
         self._session = requests.Session()
         deep_translator.google.requests = _PooledRequests(self._session, timeout=6)
         self._providers = (
-            Provider("Google", self._google),
+            Provider("Google", self._google_api),
+            Provider("Google web", self._google),
             # Anahtarsız kullanımda günlük kota dar, kısmi sonuçlara harcanmıyor.
             Provider("MyMemory", self._mymemory, finals_only=True),
         )
@@ -168,6 +175,16 @@ class TranslatorService:
 
     def status(self) -> str:
         return describe(self._providers)
+
+    def _google_api(self, text: str, source: str, target: str) -> str:
+        response = self._session.get(
+            self._GOOGLE_API_URL,
+            params={"params.client": "gtx", "query.source_language": source,
+                    "query.target_language": target, "query.display_language": "en-US",
+                    "query.text": text, "key": self._GOOGLE_API_KEY, "data_types": "TRANSLATION"},
+            timeout=6)
+        response.raise_for_status()
+        return response.json()["translation"]
 
     @staticmethod
     def _google(text: str, source: str, target: str) -> str:

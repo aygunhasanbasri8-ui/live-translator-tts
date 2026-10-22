@@ -23,8 +23,11 @@ internet şart. Çok sık istekte Google geçici olarak "too many requests"
 dönebiliyor; o zaman uygulama o servise bir süre (4 sn'den başlayıp en fazla
 1 dk) hiç gitmiyor ve yedeğe geçiyor:
 
-- Çeviri için yedek MyMemory. Anahtarsız günlük kotası dar olduğu için yalnızca
-  kesinleşmiş cümlelerde kullanılıyor, kısmi sonuçlarda değil.
+- Çeviri önce Google Translate web sayfasının kullandığı uçtan, o sınırlarsa
+  deep-translator'ın kullandığı mobil sayfadan geliyor; ikisi ayrı
+  sınırlanıyor. İkisi de sınırladığında yedek MyMemory. Onun anahtarsız
+  günlük kotası dar olduğu için yalnızca kesinleşmiş cümlelerde
+  kullanılıyor, kısmi sonuçlarda değil.
 - Tanıma için yedek yerel Whisper, kuruluysa:
 
   ```powershell
@@ -39,7 +42,7 @@ dönebiliyor; o zaman uygulama o servise bir süre (4 sn'den başlayıp en fazla
   Google'a giden istek ve sınırlanma ihtimali azalıyor.
 
 Hangi servisin kullanıldığı ve bekleyenler çalışırken durum çubuğunun
-sağında görünüyor (ör. `Çeviri: MyMemory (Google 16 sn ara)`).
+sağında görünüyor (ör. `Çeviri: Google web (Google 16 sn ara)`).
 
 ## Kullanım
 
