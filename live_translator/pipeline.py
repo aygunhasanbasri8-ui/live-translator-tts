@@ -100,9 +100,11 @@ class PipelineWorker(QThread):
             self.busy_changed.emit(False)
 
     def _is_superseded(self, segment: AudioSegment, seq: int) -> bool:
-        """Arkasından yeni segment gelmiş bir kısmi artık gösterilmeye değmez.
-        Ağ yavaşken bunları da işlemek işçileri tıkıyor, kesin altyazı
-        saniyelerce gecikiyordu; atlamak ayrıca istek sayısını azaltıyor."""
+        """İşlenmeye sıra gelene kadar arkasından yenisi gelmiş kısmi artık
+        gösterilmeye değmez. Ağ yavaşken bunları da işlemek işçileri tıkıyor,
+        kesin altyazı saniyelerce gecikiyordu. İşlenmeye başlamış kısmiyi ise
+        yarıda bırakmıyoruz: tanıma ~1 sn, kısmiler 0.9 sn'de bir geldiği için
+        o zaman hiçbir kısmi ekrana çıkamıyordu."""
         return not segment.is_final and seq != self._submitted
 
     def _process(self, segment: AudioSegment, seq: int) -> Optional[tuple[str, str, AudioSegment]]:
@@ -111,16 +113,15 @@ class PipelineWorker(QThread):
         if self._is_superseded(segment, seq):
             return None
         if segment.is_final:
-            return self._recognize_and_translate(segment, seq)
+            return self._recognize_and_translate(segment)
         if not self._partial_slots.acquire(blocking=False):
             return None
         try:
-            return self._recognize_and_translate(segment, seq)
+            return self._recognize_and_translate(segment)
         finally:
             self._partial_slots.release()
 
-    def _recognize_and_translate(self, segment: AudioSegment,
-                                 seq: int) -> Optional[tuple[str, str, AudioSegment]]:
+    def _recognize_and_translate(self, segment: AudioSegment) -> Optional[tuple[str, str, AudioSegment]]:
         cfg = self._config
         src_profile = cfg.profile(cfg.source_lang)
         tgt_profile = cfg.profile(cfg.target_lang)
@@ -137,8 +138,6 @@ class PipelineWorker(QThread):
         if not original:
             if segment.is_final:
                 self.log_message.emit(f"🔈 ({segment.duration:.1f} sn ses anlaşılamadı)")
-            return None
-        if self._is_superseded(segment, seq):
             return None
 
         try:
