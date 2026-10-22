@@ -34,9 +34,10 @@ def _select(combo: QtWidgets.QComboBox, value) -> None:
 
 
 class MainWindow(QtWidgets.QMainWindow):
-    # TTS hataları kendi thread'inden geliyor; widget'a oradan dokunmak Qt'yi
-    # çökertebildiği için sinyalle ana thread'e taşıyoruz.
-    _tts_warning = pyqtSignal(str)
+    # TTS ve model yükleme kendi thread'lerinden haber veriyor; widget'a oradan
+    # dokunmak Qt'yi çökertebildiği için sinyalle ana thread'e taşıyoruz.
+    _thread_warning = pyqtSignal(str)
+    _thread_log = pyqtSignal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -49,8 +50,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._stt = SpeechToTextService()
         self._translator = TranslatorService()
         self._tts = TTSService(create_audio_player(), self._speaking_flag,
-                               on_error=self._tts_warning.emit)
-        self._tts_warning.connect(self._append_warning)
+                               on_error=self._thread_warning.emit)
+        self._thread_warning.connect(self._append_warning)
+        self._thread_log.connect(self._append_log)
+        self._whisper_loading = False
         self._tts.start()
 
         self._capturer: Optional[LoopbackAudioCapturer] = None
@@ -360,6 +363,29 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config.whisper_model = self.whisper_model_combo.currentData() or "base"
         if self._stt.whisper is not None:
             self._stt.whisper.set_model_size(self.config.whisper_model)
+            self._preload_whisper()
+
+    def _preload_whisper(self) -> None:
+        """Model ilk segmentte yüklenirse (hele indirilecekse) ilk cümleler
+        zaman aşımına uğrayıp kayboluyor; seçildiği anda arkada hazırlıyoruz."""
+        whisper = self._stt.whisper
+        if (self.config.stt_engine != "whisper" or whisper.is_loaded()
+                or self._whisper_loading):
+            return
+        self._whisper_loading = True
+        self._append_log(f"Whisper '{self.config.whisper_model}' modeli hazırlanıyor "
+                         "(ilk seferde indirilir)...")
+
+        def load() -> None:
+            try:
+                whisper.preload()
+                self._thread_log.emit("Whisper modeli hazır.")
+            except Exception as exc:
+                self._thread_warning.emit(str(exc))
+            finally:
+                self._whisper_loading = False
+
+        threading.Thread(target=load, name="WhisperLoad", daemon=True).start()
 
     @pyqtSlot()
     def start_translation(self) -> None:

@@ -40,6 +40,13 @@ class WhisperRecognizer:
         # boyut bir sonraki çağrıda yüklenir.
         self._model_size = model_size
 
+    def is_loaded(self) -> bool:
+        return self._model is not None and self._loaded_size == self._model_size
+
+    def preload(self) -> None:
+        with self._lock:
+            self._ensure_model()
+
     def transcribe(self, pcm16: bytes, language: str, is_final: bool) -> str:
         # CPU'da aynı anda iki çözümleme ikisini de yavaşlatıyor. Kısmi sonuç
         # sırada beklemeye değmez, kesin olan zaten arkasından geliyor.
