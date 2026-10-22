@@ -124,6 +124,13 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(QtWidgets.QLabel("Hedef dil (çeviri):"), 1, 0)
         layout.addWidget(self.target_combo, 1, 1)
 
+        # Görüntülü görüşmede karşı taraf değişince iki combo'yu tek tek
+        # çevirmek zahmetli
+        self.swap_button = QtWidgets.QToolButton()
+        self.swap_button.setText("⇅")
+        self.swap_button.setToolTip("Kaynak ve hedef dili yer değiştir")
+        layout.addWidget(self.swap_button, 0, 2, 2, 1)
+
         self.engine_combo = QtWidgets.QComboBox()
         self.engine_combo.addItem("Google (çevrimiçi)", "google")
         self.engine_combo.addItem("Whisper (yerel, çevrimdışı)", "whisper")
@@ -151,7 +158,7 @@ class MainWindow(QtWidgets.QMainWindow):
         engine_row.addWidget(QtWidgets.QLabel("Model:"))
         engine_row.addWidget(self.whisper_model_combo)
         layout.addWidget(QtWidgets.QLabel("Tanıma motoru:"), 2, 0)
-        layout.addLayout(engine_row, 2, 1)
+        layout.addLayout(engine_row, 2, 1, 1, 2)
         return box
 
     def _build_mode_box(self) -> QtWidgets.QGroupBox:
@@ -321,6 +328,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.export_button.clicked.connect(self._export_transcript)
         self.clear_transcript_button.clicked.connect(self._clear_transcript)
         self.source_combo.currentIndexChanged.connect(self._sync_config_from_ui)
+        self.swap_button.clicked.connect(self._swap_languages)
         self.engine_combo.currentIndexChanged.connect(self._sync_config_from_ui)
         self.whisper_model_combo.currentIndexChanged.connect(self._sync_config_from_ui)
         self.target_combo.currentIndexChanged.connect(self._on_target_changed)
@@ -417,6 +425,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self.voice_combo.addItem(voice, voice)
         _select(self.voice_combo, self.config.voice)
         self.voice_combo.blockSignals(False)
+
+    def _swap_languages(self) -> None:
+        source = self.source_combo.currentIndex()
+        self.source_combo.setCurrentIndex(self.target_combo.currentIndex())
+        self.target_combo.setCurrentIndex(source)
 
     def _on_target_changed(self) -> None:
         self._refresh_voices()
