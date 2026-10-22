@@ -34,8 +34,8 @@ class AudioSegment:
     created_at: float = field(default_factory=time.time)
 
 
-# (parçalar, süre, kesin mi, utterance_id)
-SegmentSink = Callable[[list, float, bool, int], None]
+# (parçalar, süre, kesin mi, utterance_id, parçanın kaç sn önce bittiği)
+SegmentSink = Callable[[list, float, bool, int, float], None]
 
 
 class SpeechSegmenter:
@@ -96,7 +96,7 @@ class SpeechSegmenter:
               and (now - self._last_partial_at) >= cfg.partial_interval_sec):
             # tampon temizlenmiyor, bir sonraki kısmi bunun uzamış hâli olacak
             self._last_partial_at = now
-            self._sink(self._buffer, duration, False, self._utterance_id)
+            self._sink(self._buffer, duration, False, self._utterance_id, 0.0)
 
     def on_no_data(self, now: float) -> None:
         """Cihaz paket vermiyorsa ortada ses yok demektir; yarım kalan
@@ -116,7 +116,7 @@ class SpeechSegmenter:
 
     def finish(self) -> None:
         if self._buffer:
-            self._sink(self._buffer, self._duration(), True, self._utterance_id)
+            self._sink(self._buffer, self._duration(), True, self._utterance_id, 0.0)
 
     def _duration(self) -> float:
         return self._samples / float(self._rate)
@@ -141,7 +141,9 @@ class SpeechSegmenter:
         cut = start + int(np.argmin(energy)) * window + window // 2
 
         head, rest = audio[:cut], audio[cut:]
-        self._sink([head], head.size / float(self._rate), True, self._utterance_id)
+        # Baş kısım şimdi değil, kalan kadar önce bitti; SRT zamanı kaymasın
+        self._sink([head], head.size / float(self._rate), True, self._utterance_id,
+                   rest.size / float(self._rate))
         self._utterance_id += 1
         self._buffer = [rest]
         self._samples = rest.size
@@ -149,7 +151,7 @@ class SpeechSegmenter:
         self._last_partial_at = now
 
     def _end_utterance(self, duration: float) -> None:
-        self._sink(self._buffer, duration, True, self._utterance_id)
+        self._sink(self._buffer, duration, True, self._utterance_id, 0.0)
         self._utterance_id += 1
         self._buffer = []
         self._samples = 0
@@ -271,7 +273,8 @@ class LoopbackAudioCapturer(QThread):
             # sınırında filtre tıklaması oluşur, tanıma kötüleşirdi.
             segmenter = SpeechSegmenter(
                 self._config, rate,
-                lambda chunks, duration, is_final, uid, r=rate: self._flush(chunks, duration, r, is_final, uid))
+                lambda chunks, duration, is_final, uid, ago, r=rate:
+                    self._flush(chunks, duration, r, is_final, uid, ago))
             try:
                 got_data = self._capture_loop(stream, fmt, channels, segmenter, idle_limit)
                 segmenter.finish()
@@ -387,7 +390,7 @@ class LoopbackAudioCapturer(QThread):
         self.level_changed.emit(level)
 
     def _flush(self, chunks: list[np.ndarray], duration: float, source_rate: int,
-               is_final: bool = True, utterance_id: int = 0) -> None:
+               is_final: bool = True, utterance_id: int = 0, ended_ago: float = 0.0) -> None:
         minimum = self._config.min_segment_sec if is_final else self._config.partial_min_sec
         if duration < minimum or not chunks:
             return
@@ -400,4 +403,5 @@ class LoopbackAudioCapturer(QThread):
             duration=duration,
             is_final=is_final,
             utterance_id=utterance_id,
+            created_at=time.time() - ended_ago,
         ))
