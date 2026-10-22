@@ -12,6 +12,7 @@ from typing import Optional
 
 import requests
 import speech_recognition as sr
+import deep_translator.google
 from deep_translator import GoogleTranslator
 from deep_translator import exceptions as dt_errors
 
@@ -101,6 +102,25 @@ class _QuotaExceeded(RuntimeError):
     pass
 
 
+class _PooledRequests:
+    """deep-translator her çeviride requests.get'i yeni bağlantıyla ve zaman
+    aşımı olmadan çağırıyor. Modülün kendi 'requests' adını bununla
+    değiştirince bağlantı açık kalıyor (ölçümde istek başına ~0.35 sn) ve ağ
+    takılırsa işçi thread sonsuza kadar beklemiyor. Bilmediğimiz her şey
+    gerçek requests'e gidiyor, kütüphane başka çağrı yaparsa da bozulmasın."""
+
+    def __init__(self, session: requests.Session, timeout: float) -> None:
+        self._session = session
+        self._timeout = timeout
+
+    def get(self, *args, **kwargs):
+        kwargs.setdefault("timeout", self._timeout)
+        return self._session.get(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(requests, name)
+
+
 def _is_transient_translation(exc: Exception) -> bool:
     return isinstance(exc, (dt_errors.TooManyRequests, dt_errors.RequestError,
                             requests.RequestException, OSError, _QuotaExceeded))
@@ -116,6 +136,7 @@ class TranslatorService:
         self._cache: dict[tuple[str, str, str], str] = {}
         self._lock = threading.Lock()
         self._session = requests.Session()
+        deep_translator.google.requests = _PooledRequests(self._session, timeout=6)
         self._providers = (
             Provider("Google", self._google),
             # Anahtarsız kullanımda günlük kota dar, kısmi sonuçlara harcanmıyor.
