@@ -86,7 +86,8 @@ class SpeechToTextService:
     def transcribe(self, segment: AudioSegment, language: str, engine: str = "google") -> str:
         """Anlaşılamayan ses için boş string döner. Hiçbir motor sonuç
         veremezse ServiceUnavailable fırlatır."""
-        if self.whisper is not None and not has_speech(segment.pcm16):
+        # Whisper'ın kendi VAD'ı var; ikinci kez çalıştırmaya gerek yok
+        if engine != "whisper" and self.whisper is not None and not has_speech(segment.pcm16):
             return ""
         return call_first_available(self._providers_for(engine), (segment, language),
                                     segment.is_final, _is_transient_stt)
@@ -95,9 +96,9 @@ class SpeechToTextService:
         """Dili de Whisper'a buldurur: (metin, dil kodu)."""
         if self.whisper is None:
             raise ServiceUnavailable("dili otomatik algılamak için Whisper kurulu olmalı")
-        if not has_speech(segment.pcm16):
-            return "", ""
-        return self.whisper.transcribe_detect(segment.pcm16, segment.is_final)
+        text, language = self.whisper.transcribe_detect(segment.pcm16, segment.is_final)
+        # Çevirmenler ve hedef dil tablosu Çince için bölge kodu bekliyor
+        return text, {"zh": "zh-CN"}.get(language, language)
 
     def status(self, engine: str = "google") -> str:
         return describe(self._providers_for(engine))
@@ -172,7 +173,10 @@ class TranslatorService:
         self._cache: dict[tuple[str, str, str], str] = {}
         self._lock = threading.Lock()
         self._session = _KeepAliveSession()
-        deep_translator.google.requests = _PooledRequests(self._session, timeout=6)
+        # Süreç başına bir kez; her örnekte değiştirmek son açılanın oturumunu
+        # herkese dayatıyordu
+        if not isinstance(deep_translator.google.requests, _PooledRequests):
+            deep_translator.google.requests = _PooledRequests(self._session, timeout=6)
         self._providers = (
             Provider("Google", self._google_api),
             Provider("Google web", self._google),

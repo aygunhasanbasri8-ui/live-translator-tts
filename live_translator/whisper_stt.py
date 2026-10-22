@@ -72,6 +72,11 @@ class WhisperRecognizer:
         """(metin, dil kodu). language verilmezse Whisper dili kendisi buluyor."""
         # CPU'da aynı anda iki çözümleme ikisini de yavaşlatıyor. Kısmi sonuç
         # sırada beklemeye değmez, kesin olan zaten arkasından geliyor.
+        # Model başka thread'de yükleniyorsa (ilk indirme dakikalar sürebilir)
+        # kilitte beklemek bütün işçileri kilitliyordu; geçici hata verip
+        # varsa Google'a düşüyoruz.
+        if not self.is_loaded() and self._lock.locked():
+            raise WhisperLoadError("Whisper modeli hâlâ yükleniyor")
         if not self._lock.acquire(blocking=is_final):
             return "", ""
         try:

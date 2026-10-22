@@ -252,6 +252,10 @@ class SubtitleOverlay(QtWidgets.QWidget):
             self._clear_text()
             self.hide()
 
+    def clear(self) -> None:
+        self._hide_timer.stop()
+        self._clear_text()
+
     def remember_final(self, translated: str) -> None:
         self._last_final = translated
 

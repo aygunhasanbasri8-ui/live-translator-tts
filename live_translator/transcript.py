@@ -52,7 +52,7 @@ class Transcript:
         origin = lines[0].start
         blocks = []
         for index, line in enumerate(lines, 1):
-            text = line.original if field == "original" else line.translated
+            text = line.original if field == "original" else (line.translated or line.original)
             if field == "both":
                 text = f"{line.original}\n{line.translated}"
             start = line.start - origin

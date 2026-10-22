@@ -1,6 +1,7 @@
 """Kontrol paneli; servisleri kurup birbirine bağlayan yer burası."""
 from __future__ import annotations
 
+import os
 import queue
 import threading
 from typing import Optional
@@ -520,7 +521,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         def load() -> None:
             try:
-                whisper.preload()
+                # Yüklenirken model boyutu değiştirildiyse yenisini de hazırla
+                while not whisper.is_loaded():
+                    whisper.preload()
                 self._thread_log.emit("Whisper modeli hazır.")
             except Exception as exc:
                 self._thread_warning.emit(str(exc))
@@ -583,6 +586,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._update_run_state()
         self.level_bar.setValue(0)
+        self.overlay.clear()
         self.overlay.hide()
         self._append_log("■ Durduruldu.")
         self.status_bar.showMessage("Hazır.")
@@ -639,6 +643,11 @@ class MainWindow(QtWidgets.QMainWindow):
         if not path:
             return
         render = formats.get(chosen, formats["Çeviri altyazısı (*.srt)"])
+        # Varsayılan ad .srt; metin dökümü seçilince uzantı da ona uysun
+        wanted = ".txt" if chosen.endswith("(*.txt)") else ".srt"
+        root, ext = os.path.splitext(path)
+        if ext.lower() in (".srt", ".txt", "") and ext.lower() != wanted:
+            path = root + wanted
         try:
             # BOM'lu UTF-8: Windows'taki bazı oynatıcılar BOM'suz dosyada Türkçe karakterleri bozuyor
             with open(path, "w", encoding="utf-8-sig", newline="\n") as f:
@@ -683,8 +692,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802 (Qt API)
         try:
             self.stop_translation()
-            save_config(self.config, self._settings)
+            # save_config sync ediyor; geometri ondan önce yazılmalı, kapanışta
+            # os._exit QSettings'in kendi flush'ını beklemiyor
             self._settings.setValue("window_geometry", self.saveGeometry())
+            save_config(self.config, self._settings)
             self.hotkeys.uninstall()
             self._tts.shutdown()
             self.overlay.close()

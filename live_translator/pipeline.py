@@ -152,7 +152,9 @@ class PipelineWorker(QThread):
             if not segment.is_final:
                 return None     # çevrilmemiş yarım cümleyi göstermektense bekle
             self._report(segment, "translate", f"Çeviri yapılamadı: {exc}")
-            translated = original
+            # Çevrilmemiş metni hedef dildeki sesle okutmamak için boş bırakıyoruz;
+            # altyazıda orijinal görünüyor.
+            translated = ""
         return original, translated, segment
 
     def _report(self, segment: AudioSegment, kind: str, message: str) -> None:
@@ -230,7 +232,8 @@ class PipelineWorker(QThread):
 
         self.log_message.emit(f"🎧 {original}")
         self.subtitle_ready.emit(original, translated)
-        self.log_message.emit(f"💬 {translated}")
+        if translated:
+            self.log_message.emit(f"💬 {translated}")
         self.line_finalized.emit(segment.created_at - segment.duration, segment.created_at,
                                  original, translated)
 
