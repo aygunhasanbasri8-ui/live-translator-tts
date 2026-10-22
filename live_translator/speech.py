@@ -6,6 +6,7 @@ sınırladığında MyMemory."""
 from __future__ import annotations
 
 import html
+import json
 import threading
 from typing import Optional
 
@@ -20,18 +21,38 @@ from .whisper_stt import WhisperLoadError, WhisperRecognizer, whisper_available
 
 
 def _is_transient_stt(exc: Exception) -> bool:
-    return isinstance(exc, (sr.RequestError, OSError, WhisperLoadError))
+    return isinstance(exc, (requests.RequestException, OSError, WhisperLoadError))
+
+
+def parse_google_stt(body: str) -> str:
+    """Yanıt satır satır JSON. continuous modunda her ifade ayrı bir final
+    sonuç olarak geliyor, hepsini birleştiriyoruz."""
+    finals, last_interim = [], ""
+    for line in body.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        for result in json.loads(line).get("result", []):
+            alternatives = result.get("alternative") or []
+            if not alternatives:
+                continue
+            text = (alternatives[0].get("transcript") or "").strip()
+            if result.get("final"):
+                finals.append(text)
+            else:
+                last_interim = text
+    return " ".join(t for t in finals if t) or last_interim
 
 
 class SpeechToTextService:
+    # Chromium'un herkese açık Web Speech anahtarı; SpeechRecognition da bunu kullanıyor.
+    _GOOGLE_URL = "https://www.google.com/speech-api/v2/recognize"
+    _GOOGLE_KEY = "AIzaSyBOti4mM-6x9WDnZIjIeyEU21OpBXqWBgw"
+    _GOOGLE_TIMEOUT_SEC = 12    # ağ takılırsa sonsuza kadar beklemesin
+
     def __init__(self, whisper: Optional[WhisperRecognizer] = None) -> None:
-        self._recognizer = sr.Recognizer()
-        self._recognizer.operation_timeout = 12  # ağ takılırsa sonsuza kadar beklemesin
-        # SpeechRecognition sürümleri arasında metodun adı değişmiş
-        self._call = getattr(self._recognizer, "recognize_google", None) \
-            or getattr(self._recognizer, "recognize_legacy", None)
-        if self._call is None:  # pragma: no cover
-            raise RuntimeError("SpeechRecognition sürümünde Google tanıyıcı bulunamadı.")
+        # Bağlantıyı açık tutmak her segmentte TLS el sıkışmasını atlatıyor
+        self._session = requests.Session()
 
         if whisper is None and whisper_available():
             whisper = WhisperRecognizer()
@@ -49,12 +70,21 @@ class SpeechToTextService:
         return call_first_available(providers, (segment, language), segment.is_final, _is_transient_stt)
 
     def _google_transcribe(self, segment: AudioSegment, language: str) -> str:
-        audio = sr.AudioData(segment.pcm16, segment.sample_rate, 2)
-        try:
-            text = self._call(audio, language=language)
-        except sr.UnknownValueError:
-            return ""
-        return (text or "").strip()
+        # recognize_google yerine kendimiz çağırıyoruz: o "continuous" olmadan
+        # istiyor ve Google ses içinde ifade sınırı görürse yalnızca son
+        # ifadeyi döndürüyor. Ölçümde 5 sn'lik cümlelerin kabaca beşte birinde
+        # baştaki yarım cümle kayboluyordu; continuous ile hepsi tam geldi.
+        flac = sr.AudioData(segment.pcm16, segment.sample_rate, 2).get_flac_data(convert_width=2)
+        response = self._session.post(
+            self._GOOGLE_URL,
+            params={"client": "chromium", "lang": language, "key": self._GOOGLE_KEY,
+                    "pFilter": 0, "continuous": ""},
+            data=flac,
+            headers={"Content-Type": f"audio/x-flac; rate={segment.sample_rate}"},
+            timeout=self._GOOGLE_TIMEOUT_SEC,
+        )
+        response.raise_for_status()
+        return parse_google_stt(response.text)
 
     def _whisper_transcribe(self, segment: AudioSegment, language: str) -> str:
         return self.whisper.transcribe(segment.pcm16, language, segment.is_final)

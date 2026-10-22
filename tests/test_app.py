@@ -42,3 +42,16 @@ def test_srt_timestamps_are_relative_and_do_not_overlap():
         "1\n00:00:00,000 --> 00:00:03,000\nmerhaba\n\n"
         "2\n00:00:03,000 --> 00:00:04,000\nhoşça kal\n"
     )
+
+
+def test_google_continuous_response_joins_all_final_phrases():
+    from live_translator.speech import parse_google_stt
+
+    body = (
+        '{"result":[]}\n'
+        '{"result":[{"alternative":[{"transcript":"first part","confidence":0.9}],"final":true}],"result_index":0}\n'
+        '{"result":[{"alternative":[{"transcript":" second part"}],"final":true}],"result_index":1}\n'
+    )
+
+    assert parse_google_stt(body) == "first part second part"
+    assert parse_google_stt('{"result":[]}\n') == ""
