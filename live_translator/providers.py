@@ -16,9 +16,12 @@ class ServiceUnavailable(RuntimeError):
 
 
 class Cooldown:
-    """Art arda her geçici hatada bekleme iki katına çıkar, ilk başarıda sıfırlanır."""
+    """Art arda her geçici hatada bekleme iki katına çıkar, ilk başarıda sıfırlanır.
 
-    def __init__(self, base_sec: float = 4.0, max_sec: float = 60.0,
+    Bekleme sürerken gelen hatalar süreyi uzatmıyor: üç işçi aynı anda
+    düşünce tek bir ağ kesintisi 2-4-8 sn diye katlanıyordu."""
+
+    def __init__(self, base_sec: float = 2.0, max_sec: float = 60.0,
                  clock: Callable[[], float] = time.monotonic) -> None:
         self._base = base_sec
         self._max = max_sec
@@ -36,9 +39,12 @@ class Cooldown:
 
     def failed(self) -> float:
         with self._lock:
+            now = self._clock()
+            if now < self._until:
+                return self._until - now
             delay = min(self._max, self._base * (2 ** self._failures))
             self._failures += 1
-            self._until = self._clock() + delay
+            self._until = now + delay
             return delay
 
     def succeeded(self) -> None:

@@ -15,9 +15,12 @@ def test_cooldown_doubles_until_cap_and_resets_on_success():
     clock = FakeClock()
     cooldown = Cooldown(base_sec=4, max_sec=10, clock=clock)
 
-    assert [cooldown.failed() for _ in range(3)] == [4, 8, 10]
-    assert cooldown.active()
-    clock.now += 10
+    delays = []
+    for _ in range(3):
+        delays.append(cooldown.failed())
+        assert cooldown.failed() == delays[-1]   # beklerken gelen hata katlamıyor
+        clock.now += delays[-1]
+    assert delays == [4, 8, 10]
     assert not cooldown.active()
 
     cooldown.succeeded()
@@ -50,6 +53,6 @@ def test_rate_limited_provider_is_skipped_until_cooldown_ends():
     with pytest.raises(ServiceUnavailable):
         call_first_available(providers, ("c",), False, transient)
 
-    clock.now += 5
+    clock.now += 2
     call_first_available(providers, ("d",), True, transient)
     assert calls[-2:] == ["google", "backup"]

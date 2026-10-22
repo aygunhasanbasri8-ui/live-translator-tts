@@ -20,7 +20,7 @@ Kısayollar önce `keyboard`, o kurulamazsa `pynput` ile bağlanıyor.
 
 Tanıma ve çeviri varsayılan olarak Google'ın ücretsiz uçlarını kullanıyor,
 internet şart. Çok sık istekte Google geçici olarak "too many requests"
-dönebiliyor; o zaman uygulama o servise bir süre (4 sn'den başlayıp en fazla
+dönebiliyor; o zaman uygulama o servise bir süre (2 sn'den başlayıp en fazla
 1 dk) hiç gitmiyor ve yedeğe geçiyor:
 
 - Çeviri önce Google Translate web sayfasının kullandığı uçtan, o sınırlarsa
