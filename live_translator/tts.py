@@ -165,9 +165,10 @@ class TTSService:
         silent: list[str] = []
         last_error: Optional[Exception] = None
         for voice in voices:
-            # Ağ hatasında aynı sesle bir kez daha deniyoruz; ses üretmeyen
-            # seste beklemenin anlamı yok, hemen sıradakine geçiyoruz.
-            for _attempt in range(2):
+            # Ağ hatasında aynı sesle bir kez daha deniyoruz, o da olmazsa
+            # başka ses denemek boşa bekleme. Ses üretmeyen seste ise hemen
+            # sıradakine geçiyoruz.
+            for attempt in range(2):
                 try:
                     loop.run_until_complete(self._synthesize(request.text, voice, rate, path))
                     if not os.path.exists(path) or os.path.getsize(path) == 0:
@@ -176,8 +177,9 @@ class TTSService:
                     silent.append(voice)
                     last_error = exc
                     break
-                except Exception as exc:
-                    last_error = exc
+                except Exception:
+                    if attempt == 1:
+                        raise
                     continue
                 # Metin yüzünden ses çıkmıyorsa her ses susar; "bozuk" demek
                 # için başka bir sesin aynı metni okuyabilmesi gerekiyor.

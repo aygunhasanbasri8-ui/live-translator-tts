@@ -10,9 +10,9 @@ import json
 import threading
 from typing import Optional
 
+import deep_translator.google
 import requests
 import speech_recognition as sr
-import deep_translator.google
 from deep_translator import GoogleTranslator
 from deep_translator import exceptions as dt_errors
 
