@@ -6,6 +6,7 @@ import queue
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from typing import Optional
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
@@ -162,21 +163,25 @@ class PipelineWorker(QThread):
         self.error_occurred.emit(message)
 
     def _emit_in_order(self) -> None:
-        while True:
+        # Durdur'dan sonra gelen sonuçların gösterileceği yer yok; beklemek
+        # yalnızca arayüzü donduruyordu (yavaş ağda 7 sn).
+        while not self._stop_event.is_set():
             with self._cv:
                 while not self._pending and not self._stop_event.is_set():
                     self._cv.wait(0.2)
                 if not self._pending:
-                    if self._stop_event.is_set():
-                        return
                     continue
                 future = self._pending[0]
 
             try:
-                result = future.result(timeout=self.RESULT_TIMEOUT_SEC)
+                result = self._wait_result(future)
             except Exception as exc:
-                LOGGER.warning("Segment işlenemedi: %s", exc)
+                if self._stop_event.is_set():
+                    return
+                LOGGER.warning("Segment işlenemedi: %r", exc)
                 result = None
+            if self._stop_event.is_set():
+                return
 
             with self._cv:
                 if self._pending and self._pending[0] is future:
@@ -187,6 +192,15 @@ class PipelineWorker(QThread):
 
             if result is not None:
                 self._publish(*result)
+
+    def _wait_result(self, future: Future):
+        deadline = time.monotonic() + self.RESULT_TIMEOUT_SEC
+        while True:
+            try:
+                return future.result(timeout=0.2)
+            except FutureTimeout:
+                if self._stop_event.is_set() or time.monotonic() >= deadline:
+                    raise
 
     def _publish(self, original: str, translated: str, segment: AudioSegment) -> None:
         now = time.time()
