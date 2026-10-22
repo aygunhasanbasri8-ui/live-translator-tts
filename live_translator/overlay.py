@@ -79,13 +79,14 @@ class SubtitleOverlay(QtWidgets.QWidget):
         self._original_label.setFont(sub_font)
 
         # Orijinal satırın zemini ana satırınkinin 0.6'sı; eskiden 120/200'dü
-        alpha = int(255 * max(0, min(100, self._config.subtitle_opacity)) / 100)
+        opacity = max(0, min(100, self._config.subtitle_opacity)) / 100
+        alpha = int(255 * opacity)
         self._translated_label.setStyleSheet(
             f"""
             QLabel {{
                 color: #FFFFFF;
                 background-color: rgba(0, 0, 0, {alpha});
-                border: {self._BORDER_MAIN}px solid rgba(255, 255, 255, 45);
+                border: {self._BORDER_MAIN}px solid rgba(255, 255, 255, {int(45 * opacity)});
                 border-radius: 14px;
                 padding: {self._PAD_V_MAIN}px {self._PAD_H_MAIN}px;
             }}
@@ -101,7 +102,19 @@ class SubtitleOverlay(QtWidgets.QWidget):
             }}
             """
         )
+        # Zemin silikleşince beyaz yazı açık renkli sahnede kayboluyor;
+        # yazının etrafına koyu bir hale ekliyoruz.
+        for label in (self._original_label, self._translated_label):
+            label.setGraphicsEffect(self._text_halo() if opacity < 0.5 else None)
         self.reposition()
+
+    @staticmethod
+    def _text_halo() -> QtWidgets.QGraphicsDropShadowEffect:
+        effect = QtWidgets.QGraphicsDropShadowEffect()
+        effect.setBlurRadius(8)
+        effect.setOffset(0, 0)
+        effect.setColor(QtGui.QColor(0, 0, 0, 255))
+        return effect
 
     def enable_click_through(self) -> None:
         """Qt bayrağı her durumda yetmiyor, Win32 tarafında da ayarlıyoruz."""
@@ -133,7 +146,9 @@ class SubtitleOverlay(QtWidgets.QWidget):
         height = 0
         shown = 0
         for label in (self._original_label, self._translated_label):
-            if not label.isVisible():
+            # isVisible() pencere gizliyken hep False; gizliyken gelen ilk
+            # altyazı (ve ayar önizlemesi) yanlış ölçülüp alttan kırpılıyordu
+            if not label.isVisibleTo(self):
                 continue
             label.setWordWrap(False)
             natural = label.sizeHint().width()
