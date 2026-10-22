@@ -20,6 +20,7 @@ from .tts import TTSService
 
 class PipelineWorker(QThread):
     subtitle_ready = pyqtSignal(str, str)   # (orijinal, çeviri)
+    line_finalized = pyqtSignal(float, float, str, str)  # (başlangıç, bitiş, orijinal, çeviri)
     log_message = pyqtSignal(str)
     error_occurred = pyqtSignal(str)
     busy_changed = pyqtSignal(bool)
@@ -91,7 +92,7 @@ class PipelineWorker(QThread):
             executor.shutdown(wait=False, cancel_futures=True)
             self.busy_changed.emit(False)
 
-    def _process(self, segment: AudioSegment) -> Optional[tuple[str, str, bool]]:
+    def _process(self, segment: AudioSegment) -> Optional[tuple[str, str, AudioSegment]]:
         # Kısmi sonuçların hatası ve anlaşılamaması olağan (cümle yarım),
         # kullanıcıya yalnızca kesinleşmiş segmentlerinkini gösteriyoruz.
         cfg = self._config
@@ -120,7 +121,7 @@ class PipelineWorker(QThread):
                 return None     # çevrilmemiş yarım cümleyi göstermektense bekle
             self._report(segment, "translate", f"Çeviri yapılamadı: {exc}")
             translated = original
-        return original, translated, segment.is_final
+        return original, translated, segment
 
     def _report(self, segment: AudioSegment, kind: str, message: str) -> None:
         if not segment.is_final:
@@ -160,10 +161,10 @@ class PipelineWorker(QThread):
             if result is not None:
                 self._publish(*result)
 
-    def _publish(self, original: str, translated: str, is_final: bool) -> None:
+    def _publish(self, original: str, translated: str, segment: AudioSegment) -> None:
         now = time.time()
 
-        if not is_final:
+        if not segment.is_final:
             # Kısmi sonuç sadece ekrandaki metni tazeler; günlüğe yazılmaz,
             # yarım cümle seslendirilmez.
             if original == self._last_partial:
@@ -185,6 +186,8 @@ class PipelineWorker(QThread):
         self.log_message.emit(f"🎧 {original}")
         self.subtitle_ready.emit(original, translated)
         self.log_message.emit(f"💬 {translated}")
+        self.line_finalized.emit(segment.created_at - segment.duration, segment.created_at,
+                                 original, translated)
 
         if self._config.dubbing_enabled and translated:
             self._tts.speak(translated, self._config.voice, self._config.tts_rate)

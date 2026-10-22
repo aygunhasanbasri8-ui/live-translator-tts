@@ -18,6 +18,7 @@ from .pipeline import PipelineWorker
 from .queues import drain
 from .settings import load_config, open_settings, save_config
 from .speech import SpeechToTextService, TranslatorService
+from .transcript import Transcript
 from .tts import TTSService
 from .whisper_stt import WHISPER_MODELS
 
@@ -50,6 +51,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._capturer: Optional[LoopbackAudioCapturer] = None
         self._pipeline: Optional[PipelineWorker] = None
         self._running = False
+        self.transcript = Transcript()
 
         self.overlay = SubtitleOverlay(self.config)
         self.hotkeys = HotkeyManager(self)
@@ -82,6 +84,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.log_view.setMaximumBlockCount(400)
         self.log_view.setPlaceholderText("Tanınan ve çevrilen metinler burada görünür...")
         root.addWidget(self.log_view, 1)
+        root.addLayout(self._build_transcript_row())
 
         self.status_bar = self.statusBar()
         self.status_bar.showMessage("Hazır.")
@@ -257,9 +260,23 @@ class MainWindow(QtWidgets.QMainWindow):
             row.addWidget(button)
         return row
 
+    def _build_transcript_row(self) -> QtWidgets.QHBoxLayout:
+        row = QtWidgets.QHBoxLayout()
+        self.transcript_label = QtWidgets.QLabel()
+        self.export_button = QtWidgets.QPushButton("Altyazıları kaydet...")
+        self.export_button.setToolTip("Kesinleşmiş cümleleri SRT ya da metin olarak kaydeder.")
+        self.clear_transcript_button = QtWidgets.QPushButton("Temizle")
+        row.addWidget(self.transcript_label, 1)
+        row.addWidget(self.export_button)
+        row.addWidget(self.clear_transcript_button)
+        self._update_transcript_label()
+        return row
+
     def _connect_ui_signals(self) -> None:
         self.start_button.clicked.connect(self.start_translation)
         self.stop_button.clicked.connect(self.stop_translation)
+        self.export_button.clicked.connect(self._export_transcript)
+        self.clear_transcript_button.clicked.connect(self._clear_transcript)
         self.source_combo.currentIndexChanged.connect(self._sync_config_from_ui)
         self.engine_combo.currentIndexChanged.connect(self._sync_config_from_ui)
         self.whisper_model_combo.currentIndexChanged.connect(self._sync_config_from_ui)
@@ -348,6 +365,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._pipeline = PipelineWorker(self.config, self._audio_queue, self._stt,
                                         self._translator, self._tts, parent=self)
         self._pipeline.subtitle_ready.connect(self.overlay.show_subtitle)
+        self._pipeline.line_finalized.connect(self._on_line_finalized)
         self._pipeline.log_message.connect(self._append_log)
         self._pipeline.error_occurred.connect(self._append_warning)
         self._pipeline.start()
@@ -411,6 +429,42 @@ class MainWindow(QtWidgets.QMainWindow):
                 LOGGER.debug("Isıtma isteği başarısız (önemsiz): %s", exc)
 
         threading.Thread(target=warm, name="WarmUp", daemon=True).start()
+
+    @pyqtSlot(float, float, str, str)
+    def _on_line_finalized(self, start: float, end: float, original: str, translated: str) -> None:
+        self.transcript.add(start, end, original, translated)
+        self._update_transcript_label()
+
+    def _update_transcript_label(self) -> None:
+        count = len(self.transcript)
+        self.transcript_label.setText(f"Dökümde {count} cümle" if count else "Döküm boş")
+        self.export_button.setEnabled(count > 0)
+        self.clear_transcript_button.setEnabled(count > 0)
+
+    def _clear_transcript(self) -> None:
+        self.transcript.clear()
+        self._update_transcript_label()
+
+    def _export_transcript(self) -> None:
+        formats = {
+            "Çeviri altyazısı (*.srt)": lambda: self.transcript.to_srt("translated"),
+            "İki dilli altyazı (*.srt)": lambda: self.transcript.to_srt("both"),
+            "Orijinal altyazı (*.srt)": lambda: self.transcript.to_srt("original"),
+            "Metin dökümü (*.txt)": self.transcript.to_text,
+        }
+        path, chosen = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Altyazıları kaydet", "altyazi.srt", ";;".join(formats))
+        if not path:
+            return
+        render = formats.get(chosen, formats["Çeviri altyazısı (*.srt)"])
+        try:
+            # BOM'lu UTF-8: Windows'taki bazı oynatıcılar BOM'suz dosyada Türkçe karakterleri bozuyor
+            with open(path, "w", encoding="utf-8-sig", newline="\n") as f:
+                f.write(render())
+        except OSError as exc:
+            QtWidgets.QMessageBox.warning(self, "Kaydedilemedi", str(exc))
+            return
+        self._append_log(f"💾 Kaydedildi: {path}")
 
     @pyqtSlot(float)
     def _on_level(self, level: float) -> None:

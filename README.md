@@ -52,6 +52,10 @@ ve konuşma hızı seçiliyor. "Akıcı mod" açıkken altyazı konuşma sürerk
 yaklaşık saniyede bir güncelleniyor; kapalıyken sadece cümle bitince geliyor,
 daha az istek atıyor.
 
+Kesinleşen cümleler bir dökümde birikiyor; "Altyazıları kaydet..." ile
+çeviri, orijinal ya da iki dilli SRT veya düz metin olarak kaydedilebiliyor.
+Zamanlar ilk cümleye göre, yani videoyu baştan izlerken kabaca hizalı.
+
 Ayarlar (diller, mod, ses, hassasiyet, altyazı boyutu/konumu/opaklığı,
 pencere konumu) kapanışta ve her Başlat'ta kaydediliyor, bir sonraki
 açılışta aynen geliyor. Windows'ta kayıt defterinde

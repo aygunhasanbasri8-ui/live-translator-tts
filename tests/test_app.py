@@ -27,3 +27,18 @@ def test_resample_returns_requested_length():
 
 def test_config_profile_falls_back_to_english():
     assert AppConfig().profile("unknown").label == LANGUAGES["en"].label
+
+
+def test_srt_timestamps_are_relative_and_do_not_overlap():
+    from live_translator.transcript import Transcript, srt_timestamp
+
+    assert srt_timestamp(3725.5) == "01:02:05,500"
+
+    transcript = Transcript()
+    transcript.add(1000.0, 1003.2, "hello", "merhaba")
+    transcript.add(1003.0, 1004.0, "bye", "hoşça kal")
+
+    assert transcript.to_srt() == (
+        "1\n00:00:00,000 --> 00:00:03,000\nmerhaba\n\n"
+        "2\n00:00:03,000 --> 00:00:04,000\nhoşça kal\n"
+    )
