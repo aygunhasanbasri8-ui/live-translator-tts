@@ -35,7 +35,9 @@ dönebiliyor; o zaman uygulama o servise bir süre (2 sn'den başlayıp en fazla
   ```
 
   Whisper arayüzden doğrudan da seçilebiliyor; o zaman internet olmadan
-  çalışıyor. Model (tiny/base/small) ilk kullanımda bir kez indiriliyor,
+  çalışıyor. Kuruluyken kaynak dil listesinin başında "Otomatik algıla"
+  da çıkıyor: dili her cümlede Whisper buluyor, karışık dilli içerikte
+  kaynak dili değiştirmeye gerek kalmıyor. Model (tiny/base/small) ilk kullanımda bir kez indiriliyor,
   CPU'da int8 çalışıyor. Exe'ye girmiyor, yalnızca kaynaktan çalıştırınca var.
   Kuruluyken birlikte gelen Silero VAD da kullanılıyor: içinde konuşma
   olmayan parçalar (müzik, gürültü) hiç tanımaya gönderilmiyor, böylece

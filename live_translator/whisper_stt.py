@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import threading
+from typing import Optional
 
 import numpy as np
 
@@ -64,16 +65,21 @@ class WhisperRecognizer:
             self._ensure_model()
 
     def transcribe(self, pcm16: bytes, language: str, is_final: bool) -> str:
+        return self.transcribe_detect(pcm16, is_final, language)[0]
+
+    def transcribe_detect(self, pcm16: bytes, is_final: bool,
+                          language: Optional[str] = None) -> tuple[str, str]:
+        """(metin, dil kodu). language verilmezse Whisper dili kendisi buluyor."""
         # CPU'da aynı anda iki çözümleme ikisini de yavaşlatıyor. Kısmi sonuç
         # sırada beklemeye değmez, kesin olan zaten arkasından geliyor.
         if not self._lock.acquire(blocking=is_final):
-            return ""
+            return "", ""
         try:
             model = self._ensure_model()
             audio = np.frombuffer(pcm16, dtype="<i2").astype(np.float32) / 32768.0
-            segments, _info = model.transcribe(
+            segments, info = model.transcribe(
                 audio,
-                language=language.split("-")[0].lower(),
+                language=language.split("-")[0].lower() if language else None,
                 beam_size=5 if is_final else 1,
                 # Her parça bağımsız; önceki metne koşullamak sessizlikte
                 # "izlediğiniz için teşekkürler" gibi uydurmaları artırıyor.
@@ -82,7 +88,8 @@ class WhisperRecognizer:
                 # dahili VAD bunları kesiyor, konuşmada doğruluğu değiştirmedi.
                 vad_filter=True,
             )
-            return " ".join(s.text.strip() for s in segments).strip()
+            text = " ".join(s.text.strip() for s in segments).strip()
+            return text, info.language or ""
         finally:
             self._lock.release()
 

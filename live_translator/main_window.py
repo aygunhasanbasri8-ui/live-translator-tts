@@ -10,7 +10,7 @@ from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal, pyqtSlot
 
 from .audio_player import create_audio_player
 from .capture import AudioSegment, LoopbackAudioCapturer
-from .config import LANGUAGES, AppConfig
+from .config import AUTO_LANGUAGE, LANGUAGES, AppConfig
 from .hotkeys import HotkeyManager
 from .log import LOGGER
 from .overlay import SubtitleOverlay
@@ -28,11 +28,14 @@ SUBTITLE_COLORS = (("Beyaz", "#FFFFFF"), ("Sarı", "#FFE14D"), ("Açık yeşil",
 BUTTON_STYLE = "QPushButton { padding: 10px; font-weight: bold; }"
 
 
-def _select(combo: QtWidgets.QComboBox, value) -> None:
-    """Kayıtlı değer artık listede yoksa (eski sürümden kalma) varsayılan seçim kalır."""
-    index = combo.findData(value)
-    if index >= 0:
-        combo.setCurrentIndex(index)
+def _select(combo: QtWidgets.QComboBox, value, fallback=None) -> None:
+    """Kayıtlı değer artık listede yoksa (eski sürümden ya da Whisper kurulu
+    başka makineden kalma) fallback, o da yoksa mevcut seçim kalır."""
+    for candidate in (value, fallback):
+        index = combo.findData(candidate)
+        if candidate is not None and index >= 0:
+            combo.setCurrentIndex(index)
+            return
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -115,11 +118,18 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.source_combo = QtWidgets.QComboBox()
         self.target_combo = QtWidgets.QComboBox()
+        if self._stt.whisper is not None:
+            self.source_combo.addItem("Otomatik algıla (Whisper)", AUTO_LANGUAGE)
+            self.source_combo.setItemData(
+                0, "Dili Whisper buluyor; tanıma motoru seçiminden bağımsız olarak\n"
+                   "Whisper kullanılır. Karışık dilli içerik için.",
+                Qt.ItemDataRole.ToolTipRole)
         for code, profile in LANGUAGES.items():
             self.source_combo.addItem(profile.label, code)
             self.target_combo.addItem(profile.label, code)
-        _select(self.source_combo, self.config.source_lang)
-        _select(self.target_combo, self.config.target_lang)
+        defaults = AppConfig()
+        _select(self.source_combo, self.config.source_lang, defaults.source_lang)
+        _select(self.target_combo, self.config.target_lang, defaults.target_lang)
 
         layout.addWidget(QtWidgets.QLabel("Kaynak dil (videonun dili):"), 0, 0)
         layout.addWidget(self.source_combo, 0, 1)
@@ -465,9 +475,12 @@ class MainWindow(QtWidgets.QMainWindow):
         threading.Thread(target=speak, name="VoicePreview", daemon=True).start()
 
     def _swap_languages(self) -> None:
-        source = self.source_combo.currentIndex()
-        self.source_combo.setCurrentIndex(self.target_combo.currentIndex())
-        self.target_combo.setCurrentIndex(source)
+        # İndeksle değil kodla: kaynak listesinin başında "Otomatik" de var
+        source, target = self.source_combo.currentData(), self.target_combo.currentData()
+        if source == AUTO_LANGUAGE:
+            return
+        _select(self.source_combo, target)
+        _select(self.target_combo, source)
 
     def _on_target_changed(self) -> None:
         self._refresh_voices()
@@ -516,7 +529,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """Model ilk segmentte yüklenirse (hele indirilecekse) ilk cümleler
         zaman aşımına uğrayıp kayboluyor; seçildiği anda arkada hazırlıyoruz."""
         whisper = self._stt.whisper
-        if (self.config.stt_engine != "whisper" or whisper.is_loaded()
+        if (self._effective_engine() != "whisper" or whisper.is_loaded()
                 or self._whisper_loading):
             return
         self._whisper_loading = True
@@ -653,8 +666,11 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self._append_log(f"💾 Kaydedildi: {path}")
 
+    def _effective_engine(self) -> str:
+        return "whisper" if self.config.source_lang == AUTO_LANGUAGE else self.config.stt_engine
+
     def _refresh_service_status(self) -> None:
-        stt = self._stt.status(self.config.stt_engine)
+        stt = self._stt.status(self._effective_engine())
         translation = ("—" if self.config.source_lang == self.config.target_lang
                        else self._translator.status())
         self.service_label.setText(f"Tanıma: {stt}  ·  Çeviri: {translation}")

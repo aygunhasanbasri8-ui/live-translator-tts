@@ -52,6 +52,10 @@ LANGUAGES: dict[str, LanguageProfile] = {
 }
 
 
+# Kaynak dil olarak seçilince dili Whisper buluyor (Google tanıma dil kodu istiyor)
+AUTO_LANGUAGE = "auto"
+
+
 @dataclass
 class AppConfig:
     """Çalışma anı ayarları. Yakalama ve pipeline thread'leri her turda

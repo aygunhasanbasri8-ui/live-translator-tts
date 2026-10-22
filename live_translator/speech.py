@@ -18,7 +18,7 @@ from deep_translator import GoogleTranslator
 from deep_translator import exceptions as dt_errors
 
 from .capture import AudioSegment
-from .providers import Provider, call_first_available, describe
+from .providers import Provider, ServiceUnavailable, call_first_available, describe
 from .whisper_stt import WhisperLoadError, WhisperRecognizer, has_speech, whisper_available
 
 
@@ -90,6 +90,14 @@ class SpeechToTextService:
             return ""
         return call_first_available(self._providers_for(engine), (segment, language),
                                     segment.is_final, _is_transient_stt)
+
+    def transcribe_auto(self, segment: AudioSegment) -> tuple[str, str]:
+        """Dili de Whisper'a buldurur: (metin, dil kodu)."""
+        if self.whisper is None:
+            raise ServiceUnavailable("dili otomatik algılamak için Whisper kurulu olmalı")
+        if not has_speech(segment.pcm16):
+            return "", ""
+        return self.whisper.transcribe_detect(segment.pcm16, segment.is_final)
 
     def status(self, engine: str = "google") -> str:
         return describe(self._providers_for(engine))

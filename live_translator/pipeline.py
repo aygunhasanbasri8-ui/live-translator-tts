@@ -12,7 +12,7 @@ from typing import Optional
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
 
 from .capture import AudioSegment
-from .config import AppConfig
+from .config import AUTO_LANGUAGE, AppConfig
 from .log import LOGGER
 from .providers import ServiceUnavailable
 from .speech import SpeechToTextService, TranslatorService
@@ -127,8 +127,12 @@ class PipelineWorker(QThread):
         src_profile = cfg.profile(cfg.source_lang)
         tgt_profile = cfg.profile(cfg.target_lang)
 
+        source_code = src_profile.translate_code
         try:
-            original = self._stt.transcribe(segment, src_profile.stt_code, cfg.stt_engine)
+            if cfg.source_lang == AUTO_LANGUAGE:
+                original, source_code = self._stt.transcribe_auto(segment)
+            else:
+                original = self._stt.transcribe(segment, src_profile.stt_code, cfg.stt_engine)
         except ServiceUnavailable as exc:
             self._report(segment, "stt", f"Tanıma yapılamadı: {exc}")
             return None
@@ -142,7 +146,7 @@ class PipelineWorker(QThread):
             return None
 
         try:
-            translated = self._translator.translate(original, src_profile.translate_code,
+            translated = self._translator.translate(original, source_code,
                                                     tgt_profile.translate_code, segment.is_final)
         except Exception as exc:
             if not segment.is_final:
