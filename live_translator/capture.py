@@ -176,6 +176,7 @@ class LoopbackAudioCapturer(QThread):
     IDLE_RECHECK_MAX_SEC = 12.0
     MAX_CONSECUTIVE_ERRORS = 20           # ~1 sn; cihaz çıkarılınca akış hep hata veriyor
     RECONNECT_DELAY_SEC = 1.5
+    _DIGITAL_SILENCE = 1e-5
 
     def __init__(self, config: AppConfig, out_queue: "queue.Queue[AudioSegment]",
                  mute_flag: threading.Event, parent: Optional[QObject] = None) -> None:
@@ -312,9 +313,9 @@ class LoopbackAudioCapturer(QThread):
 
     def _capture_loop(self, stream, fmt: int, channels: int, segmenter: SpeechSegmenter,
                       idle_limit: float) -> bool:
-        """Durdurulunca, akış kopunca ya da idle_limit boyunca paket gelmeyince
-        döner; son ikisinde run() cihazı baştan çözüp yeniden açıyor. Hiç
-        paket okunduysa True."""
+        """Durdurulunca, akış kopunca ya da idle_limit boyunca ses gelmeyince
+        döner; son ikisinde run() cihazı baştan çözüp yeniden açıyor. Arada
+        gerçek ses okunduysa True."""
         dtype = np.int16 if fmt == pyaudio.paInt16 else np.float32
         scale = 1.0 / 32768.0 if fmt == pyaudio.paInt16 else 1.0
         errors = 0
@@ -354,8 +355,6 @@ class LoopbackAudioCapturer(QThread):
                 time.sleep(0.05)
                 continue
             errors = 0
-            got_data = True
-            last_data_at = time.monotonic()
 
             block = np.frombuffer(raw, dtype=dtype).astype(np.float32) * scale
             mono = AudioMath.to_mono(block, channels)
@@ -364,6 +363,14 @@ class LoopbackAudioCapturer(QThread):
 
             level = AudioMath.rms(mono)
             self._emit_level(min(level * 8.0, 1.0))
+            # Bazı sürücüler hiçbir şey çalmazken de sıfır dolu paket veriyor;
+            # onu "ses var" saymazsak cihaz değişimi orada da fark ediliyor.
+            if level > self._DIGITAL_SILENCE:
+                got_data = True
+                last_data_at = time.monotonic()
+            elif (not segmenter.in_speech
+                  and time.monotonic() - last_data_at >= idle_limit):
+                return got_data
 
             now = time.time()
             if self._is_muted(now):
