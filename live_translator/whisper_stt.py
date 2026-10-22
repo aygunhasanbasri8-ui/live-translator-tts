@@ -1,12 +1,7 @@
 """İsteğe bağlı yerel tanıma (faster-whisper). Kurulu değilse uygulama
-Google ile eskisi gibi çalışıyor.
-
-Paket importlib ile yükleniyor: PyInstaller düz import'u görüp ctranslate2
-ve onnxruntime'ı exe'ye gömmesin, exe boyutu kurulu olup olmamasına göre
-değişmesin diye."""
+Google ile eskisi gibi çalışıyor. Exe'ye girmiyor (pyinstaller_ortak.py)."""
 from __future__ import annotations
 
-import importlib
 import importlib.util
 import threading
 
@@ -74,10 +69,10 @@ class WhisperRecognizer:
             return self._model
         LOGGER.info("Whisper '%s' modeli yükleniyor (ilk seferde indirilir)...", size)
         try:
-            module = importlib.import_module("faster_whisper")
+            from faster_whisper import WhisperModel
             # GPU sürücüsü/CUDA kütüphanesi eksik makinelerde "auto" ilk
             # çözümlemede çöküyor; CPU int8 her yerde çalışıyor ve yeterince hızlı.
-            self._model = module.WhisperModel(size, device="cpu", compute_type="int8")
+            self._model = WhisperModel(size, device="cpu", compute_type="int8")
         except Exception as exc:
             raise WhisperLoadError(f"Whisper modeli yüklenemedi: {exc}") from exc
         self._loaded_size = size

@@ -33,6 +33,9 @@ excludes = [
     "PyQt6.QtQml", "PyQt6.Qt3DCore", "PyQt6.QtMultimedia", "PyQt6.QtBluetooth",
     "PyQt6.QtDesigner", "PyQt6.QtHelp", "PyQt6.QtTest", "PyQt6.QtSql",
     "PyQt6.QtCharts", "PyQt6.QtDataVisualization", "PyQt6.QtPdf",
+    # İsteğe bağlı yerel Whisper: derleyen makinede kuruluysa exe'ye ~300 MB
+    # ekliyor. Exe Google + MyMemory ile çalışıyor, Whisper kaynaktan kullanılıyor.
+    "faster_whisper", "ctranslate2", "onnxruntime", "av", "tokenizers", "huggingface_hub",
 ]
 
 
