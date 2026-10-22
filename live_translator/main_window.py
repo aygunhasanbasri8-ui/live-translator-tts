@@ -590,6 +590,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @pyqtSlot(float)
     def _on_level(self, level: float) -> None:
+        # Durdur'dan sonra kuyrukta kalan seviye sinyalleri çubuğu dolu bırakıyordu
+        if not self._running:
+            return
         self.level_bar.setValue(int(max(0.0, min(level, 1.0)) * 100))
 
     @pyqtSlot(str)
