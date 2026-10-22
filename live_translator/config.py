@@ -44,6 +44,9 @@ class AppConfig:
     voice: str = "tr-TR-EmelNeural"
     tts_rate: str = "+15%"
 
+    stt_engine: str = "google"           # "google" ya da "whisper" (faster-whisper kuruluysa)
+    whisper_model: str = "base"
+
     target_sample_rate: int = 16000      # STT'ye giden örnekleme hızı
     silence_threshold: float = 0.010     # RMS eşiği (0.0 - 1.0)
     silence_duration: float = 0.35       # cümle bitti sayılacak sessizlik (sn)

@@ -8,12 +8,12 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Optional
 
-import speech_recognition as sr
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
 
 from .capture import AudioSegment
 from .config import AppConfig
 from .log import LOGGER
+from .providers import ServiceUnavailable
 from .speech import SpeechToTextService, TranslatorService
 from .tts import TTSService
 
@@ -28,6 +28,8 @@ class PipelineWorker(QThread):
     MAX_BACKLOG = 6
     RESULT_TIMEOUT_SEC = 25.0
     DUPLICATE_WINDOW_SEC = 4.0
+    # Servis sınırladığında her cümle için aynı uyarıyı basmayalım
+    REPORT_INTERVAL_SEC = 15.0
 
     def __init__(self, config: AppConfig, in_queue: "queue.Queue[AudioSegment]",
                  stt: SpeechToTextService, translator: TranslatorService,
@@ -44,6 +46,8 @@ class PipelineWorker(QThread):
         self._last_partial = ""
         self._pending: "collections.deque[Future]" = collections.deque()
         self._cv = threading.Condition()
+        self._last_report_at: dict[str, float] = {}
+        self._report_lock = threading.Lock()
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -95,12 +99,12 @@ class PipelineWorker(QThread):
         tgt_profile = cfg.profile(cfg.target_lang)
 
         try:
-            original = self._stt.transcribe(segment, src_profile.stt_code)
-        except sr.RequestError as exc:
-            self._report(segment, f"STT servisine ulaşılamadı (internet?): {exc}")
+            original = self._stt.transcribe(segment, src_profile.stt_code, cfg.stt_engine)
+        except ServiceUnavailable as exc:
+            self._report(segment, "stt", f"Tanıma yapılamadı: {exc}")
             return None
         except Exception as exc:
-            self._report(segment, f"STT hatası: {exc}")
+            self._report(segment, "stt", f"STT hatası: {exc}")
             return None
 
         if not original:
@@ -110,15 +114,24 @@ class PipelineWorker(QThread):
 
         try:
             translated = self._translator.translate(original, src_profile.translate_code,
-                                                    tgt_profile.translate_code)
+                                                    tgt_profile.translate_code, segment.is_final)
         except Exception as exc:
-            self._report(segment, f"Çeviri hatası: {exc}")
+            if not segment.is_final:
+                return None     # çevrilmemiş yarım cümleyi göstermektense bekle
+            self._report(segment, "translate", f"Çeviri yapılamadı: {exc}")
             translated = original
         return original, translated, segment.is_final
 
-    def _report(self, segment: AudioSegment, message: str) -> None:
-        if segment.is_final:
-            self.error_occurred.emit(message)
+    def _report(self, segment: AudioSegment, kind: str, message: str) -> None:
+        if not segment.is_final:
+            return
+        now = time.monotonic()
+        with self._report_lock:
+            if now - self._last_report_at.get(kind, -1e9) < self.REPORT_INTERVAL_SEC:
+                LOGGER.info("%s", message)
+                return
+            self._last_report_at[kind] = now
+        self.error_occurred.emit(message)
 
     def _emit_in_order(self) -> None:
         while True:

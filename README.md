@@ -18,8 +18,22 @@ python -m pip install -e ".[dev,shortcuts]"
 `pygame` isteğe bağlı (`.[audio]`); yoksa dublaj Windows MCI ile çalınıyor.
 Kısayollar önce `keyboard`, o kurulamazsa `pynput` ile bağlanıyor.
 
-Tanıma ve çeviri Google'ın ücretsiz uçlarını kullandığı için internet şart.
-Çok sık istekte Google geçici olarak "too many requests" dönebiliyor.
+Tanıma ve çeviri varsayılan olarak Google'ın ücretsiz uçlarını kullanıyor,
+internet şart. Çok sık istekte Google geçici olarak "too many requests"
+dönebiliyor; o zaman uygulama o servise bir süre (4 sn'den başlayıp en fazla
+1 dk) hiç gitmiyor ve yedeğe geçiyor:
+
+- Çeviri için yedek MyMemory. Anahtarsız günlük kotası dar olduğu için yalnızca
+  kesinleşmiş cümlelerde kullanılıyor, kısmi sonuçlarda değil.
+- Tanıma için yedek yerel Whisper, kuruluysa:
+
+  ```powershell
+  python -m pip install -e ".[whisper]"
+  ```
+
+  Whisper arayüzden doğrudan da seçilebiliyor; o zaman internet olmadan
+  çalışıyor. Model (tiny/base/small) ilk kullanımda bir kez indiriliyor,
+  CPU'da int8 çalışıyor. Exe'ye girmiyor, yalnızca kaynaktan çalıştırınca var.
 
 ## Kullanım
 
@@ -42,8 +56,9 @@ daha az istek atıyor.
 
 1. `capture.py` sistem sesini WASAPI loopback ile alıyor, konuşmayı
    sessizliklere göre cümlelere bölüyor.
-2. `speech.py` her parçayı Google Web Speech ile metne, deep-translator ile
-   hedef dile çeviriyor.
+2. `speech.py` her parçayı Google Web Speech (ya da `whisper_stt.py`) ile
+   metne, Google/MyMemory ile hedef dile çeviriyor. Hangi sağlayıcının ne
+   zaman atlanacağı `providers.py`'de.
 3. `pipeline.py` parçaları paralel işliyor ama sonuçları geliş sırasıyla
    yayınlıyor, altyazılar karışık sırada gelmiyor.
 4. `overlay.py` altyazıyı ekranın altında, her şeyin üstünde gösteriyor.

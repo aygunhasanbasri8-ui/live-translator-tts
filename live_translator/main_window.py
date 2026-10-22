@@ -18,6 +18,7 @@ from .pipeline import PipelineWorker
 from .queues import drain
 from .speech import SpeechToTextService, TranslatorService
 from .tts import TTSService
+from .whisper_stt import WHISPER_MODELS
 
 TTS_RATES = ("+0%", "+10%", "+15%", "+25%", "+40%")
 BUTTON_STYLE = "QPushButton { padding: 10px; font-weight: bold; }"
@@ -91,6 +92,34 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.source_combo, 0, 1)
         layout.addWidget(QtWidgets.QLabel("Hedef dil (çeviri):"), 1, 0)
         layout.addWidget(self.target_combo, 1, 1)
+
+        self.engine_combo = QtWidgets.QComboBox()
+        self.engine_combo.addItem("Google (çevrimiçi)", "google")
+        self.engine_combo.addItem("Whisper (yerel, çevrimdışı)", "whisper")
+        self.whisper_model_combo = QtWidgets.QComboBox()
+        for size in WHISPER_MODELS:
+            self.whisper_model_combo.addItem(size, size)
+        self.whisper_model_combo.setCurrentIndex(self.whisper_model_combo.findData(self.config.whisper_model))
+        self.whisper_model_combo.setToolTip(
+            "tiny: en hızlı, base: dengeli, small: en doğru ama CPU'yu zorlar.\n"
+            "Model ilk kullanımda bir kez indirilir.")
+
+        if self._stt.whisper is None:
+            self.engine_combo.model().item(1).setEnabled(False)
+            self.engine_combo.setToolTip(
+                "Yerel tanıma için: pip install \".[whisper]\"\n"
+                "Kuruluysa Google sınırladığında otomatik yedek olarak da kullanılır.")
+            self.whisper_model_combo.setEnabled(False)
+        else:
+            self.engine_combo.setToolTip(
+                "Google seçiliyken Google sınırlarsa Whisper otomatik devreye girer.")
+
+        engine_row = QtWidgets.QHBoxLayout()
+        engine_row.addWidget(self.engine_combo, 1)
+        engine_row.addWidget(QtWidgets.QLabel("Model:"))
+        engine_row.addWidget(self.whisper_model_combo)
+        layout.addWidget(QtWidgets.QLabel("Tanıma motoru:"), 2, 0)
+        layout.addLayout(engine_row, 2, 1)
         return box
 
     def _build_mode_box(self) -> QtWidgets.QGroupBox:
@@ -208,6 +237,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.start_button.clicked.connect(self.start_translation)
         self.stop_button.clicked.connect(self.stop_translation)
         self.source_combo.currentIndexChanged.connect(self._sync_config_from_ui)
+        self.engine_combo.currentIndexChanged.connect(self._sync_config_from_ui)
+        self.whisper_model_combo.currentIndexChanged.connect(self._sync_config_from_ui)
         self.target_combo.currentIndexChanged.connect(self._on_target_changed)
         self.radio_subtitle.toggled.connect(self._sync_config_from_ui)
         self.radio_dubbing.toggled.connect(self._sync_config_from_ui)
@@ -269,6 +300,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config.tts_rate = self.rate_combo.currentData() or "+15%"
         self.config.show_original = self.check_show_original.isChecked()
         self.config.streaming_enabled = self.check_streaming.isChecked()
+        self.config.stt_engine = self.engine_combo.currentData() or "google"
+        self.config.whisper_model = self.whisper_model_combo.currentData() or "base"
+        if self._stt.whisper is not None:
+            self._stt.whisper.set_model_size(self.config.whisper_model)
 
     @pyqtSlot()
     def start_translation(self) -> None:
