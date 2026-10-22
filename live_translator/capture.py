@@ -106,6 +106,13 @@ class SpeechSegmenter:
         if self._silence_elapsed(now):
             self._end_utterance(self._duration())
 
+    def interrupt(self) -> None:
+        """Dublaj başlayınca çağrılıyor. Yarım cümleyi atmak yerine o ana
+        kadar yakalananı gönderiyoruz; içinde henüz dublaj sesi yok."""
+        if self.in_speech and self._buffer:
+            self._end_utterance(self._duration())
+        self.reset()
+
     def reset(self) -> None:
         self._buffer = []
         self._samples = 0
@@ -374,7 +381,7 @@ class LoopbackAudioCapturer(QThread):
 
             now = time.time()
             if self._is_muted(now):
-                segmenter.reset()
+                segmenter.interrupt()
                 continue
             segmenter.feed(mono, level, now)
         return got_data
