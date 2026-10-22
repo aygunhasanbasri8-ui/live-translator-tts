@@ -283,6 +283,10 @@ class MainWindow(QtWidgets.QMainWindow):
         grid.addWidget(self.opacity_value, 2, 4)
         grid.addWidget(QtWidgets.QLabel("Yükseklik (alttan):"), 3, 0)
         grid.addWidget(self.margin_spin, 3, 1)
+        self.check_show_previous = QtWidgets.QCheckBox("Önceki cümleyi de göster")
+        self.check_show_previous.setChecked(self.config.subtitle_show_previous)
+        self.check_show_previous.setToolTip("Bir önceki cümlenin çevirisi üstte soluk olarak durur.")
+        grid.addWidget(self.check_show_previous, 3, 2, 1, 3)
 
         tabs = QtWidgets.QTabWidget()
         tabs.addTab(sensitivity, "Hassasiyet")
@@ -345,6 +349,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.margin_spin.valueChanged.connect(self._on_appearance_changed)
         self.opacity_slider.valueChanged.connect(self._on_appearance_changed)
         self.screen_combo.currentIndexChanged.connect(self._on_appearance_changed)
+        self.check_show_previous.toggled.connect(self._on_appearance_changed)
 
     def _build_tray(self) -> None:
         """Altyazı açıkken kontrol penceresi çoğu zaman ayak altında; küçültünce
@@ -448,6 +453,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config.subtitle_bottom_margin = self.margin_spin.value()
         self.config.subtitle_opacity = self.opacity_slider.value()
         self.config.subtitle_screen = self.screen_combo.currentData() or ""
+        self.config.subtitle_show_previous = self.check_show_previous.isChecked()
         self.width_value.setText(f"%{self.config.subtitle_width_pct}")
         self.opacity_value.setText(f"%{self.config.subtitle_opacity}")
         self.overlay.apply_style()
@@ -579,6 +585,7 @@ class MainWindow(QtWidgets.QMainWindow):
     @pyqtSlot(float, float, str, str)
     def _on_line_finalized(self, start: float, end: float, original: str, translated: str) -> None:
         self.transcript.add(start, end, original, translated)
+        self.overlay.remember_final(translated)
         self._update_transcript_label()
 
     def _update_transcript_label(self) -> None:

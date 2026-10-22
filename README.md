@@ -67,8 +67,10 @@ oldukça konuşma hızı cümle başına %10 artıyor (en fazla +%50); yine de
 görülmüş oluyor. Seçilen ses Edge tarafında ses üretmiyorsa aynı dilin
 diğer sesine geçiliyor.
 
-Birden fazla monitörde altyazının hangi ekranda çıkacağı "Altyazı ekranı"
-ayarından seçiliyor; o ekran çıkarılırsa birincil ekrana dönülüyor.
+Birden fazla monitörde altyazının hangi ekranda çıkacağı "Altyazı görünümü"
+sekmesinden seçiliyor; o ekran çıkarılırsa birincil ekrana dönülüyor. Aynı
+sekmede "Önceki cümleyi de göster" açılırsa bir önceki cümlenin çevirisi
+üstte soluk olarak duruyor, hızlı konuşmada okumaya yetişmek kolaylaşıyor.
 
 Pencere küçültülünce tepsiye iniyor; tepsi menüsünden başlat/durdur,
 altyazıyı gizle ve çıkış yapılabiliyor. Ses çıkışı değişince (kulaklık

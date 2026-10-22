@@ -44,10 +44,12 @@ class SubtitleOverlay(QtWidgets.QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(self._SPACING)
 
+        self._previous_label = self._make_label(is_primary=False)
         self._original_label = self._make_label(is_primary=False)
         self._translated_label = self._make_label(is_primary=True)
-        layout.addWidget(self._original_label, 0, Qt.AlignmentFlag.AlignHCenter)
-        layout.addWidget(self._translated_label, 0, Qt.AlignmentFlag.AlignHCenter)
+        for label in self._labels():
+            layout.addWidget(label, 0, Qt.AlignmentFlag.AlignHCenter)
+        self._last_final = ""
 
         self._hide_timer = QTimer(self)
         self._hide_timer.setSingleShot(True)
@@ -55,6 +57,9 @@ class SubtitleOverlay(QtWidgets.QWidget):
 
         self.apply_style()
         self.reposition()
+
+    def _labels(self) -> tuple[QtWidgets.QLabel, ...]:
+        return (self._previous_label, self._original_label, self._translated_label)
 
     def _make_label(self, is_primary: bool) -> QtWidgets.QLabel:
         label = QtWidgets.QLabel("", self)
@@ -77,6 +82,10 @@ class SubtitleOverlay(QtWidgets.QWidget):
         sub_font.setPixelSize(max(12, int(size * 0.58)))
         sub_font.setItalic(True)
         self._original_label.setFont(sub_font)
+
+        previous_font = QtGui.QFont("Segoe UI")
+        previous_font.setPixelSize(max(12, int(size * 0.75)))
+        self._previous_label.setFont(previous_font)
 
         # Orijinal satırın zemini ana satırınkinin 0.6'sı; eskiden 120/200'dü
         opacity = max(0, min(100, self._config.subtitle_opacity)) / 100
@@ -102,9 +111,19 @@ class SubtitleOverlay(QtWidgets.QWidget):
             }}
             """
         )
+        self._previous_label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: #C8C8C8;
+                background-color: rgba(0, 0, 0, {int(alpha * 0.6)});
+                border-radius: 10px;
+                padding: {self._PAD_V_SUB}px {self._PAD_H_SUB}px;
+            }}
+            """
+        )
         # Zemin silikleşince beyaz yazı açık renkli sahnede kayboluyor;
         # yazının etrafına koyu bir hale ekliyoruz.
-        for label in (self._original_label, self._translated_label):
+        for label in self._labels():
             label.setGraphicsEffect(self._text_halo() if opacity < 0.5 else None)
         self.reposition()
 
@@ -145,7 +164,7 @@ class SubtitleOverlay(QtWidgets.QWidget):
         content_width = 0
         height = 0
         shown = 0
-        for label in (self._original_label, self._translated_label):
+        for label in self._labels():
             # isVisible() pencere gizliyken hep False; gizliyken gelen ilk
             # altyazı (ve ayar önizlemesi) yanlış ölçülüp alttan kırpılıyordu
             if not label.isVisibleTo(self):
@@ -199,8 +218,14 @@ class SubtitleOverlay(QtWidgets.QWidget):
             else:
                 self._original_label.setVisible(False)
 
-            self._translated_label.setText(translated or original)
-            self._translated_label.setVisible(bool(translated or original))
+            current = translated or original
+            self._translated_label.setText(current)
+            self._translated_label.setVisible(bool(current))
+
+            # Hızlı konuşmada bir önceki cümle okunmadan kayboluyordu
+            previous = self._last_final if self._config.subtitle_show_previous else ""
+            self._previous_label.setText(previous)
+            self._previous_label.setVisible(bool(previous) and previous != current)
 
             self.reposition()
 
@@ -227,9 +252,14 @@ class SubtitleOverlay(QtWidgets.QWidget):
             self._clear_text()
             self.hide()
 
+    def remember_final(self, translated: str) -> None:
+        self._last_final = translated
+
     def _clear_text(self) -> None:
-        self._original_label.setVisible(False)
-        self._translated_label.setVisible(False)
+        # Uzun sessizlikten sonra eski cümle "önceki" diye geri gelmesin
+        self._last_final = ""
+        for label in self._labels():
+            label.setVisible(False)
 
     def showEvent(self, event: QtGui.QShowEvent) -> None:  # noqa: N802 (Qt API)
         super().showEvent(event)
