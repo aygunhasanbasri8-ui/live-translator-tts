@@ -25,6 +25,7 @@ from .speech import SpeechToTextService, TranslatorService
 from .transcript import Transcript
 from .tray import AppTray
 from .tts import TTSService
+from .web_output import WebOutputServer, new_token
 from .whisper_stt import WHISPER_MODELS
 
 TTS_RATES = ("+0%", "+10%", "+15%", "+25%", "+40%")
@@ -70,6 +71,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._speaking_flag = threading.Event()
         self._stt = SpeechToTextService()
         self._translator = TranslatorService()
+        self._web: Optional[WebOutputServer] = None
+        if not self.config.web_output_token:
+            self.config.web_output_token = new_token()
         self._llm_context = ConversationContext()
         self._glossary = Glossary(os.path.join(_config_dir(), "glossary.json"))
         self._tts = TTSService(create_audio_player(), self._speaking_flag,
@@ -261,6 +265,62 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.check_streaming)
         return box
 
+    def _build_output_tab(self) -> QtWidgets.QWidget:
+        tab = QtWidgets.QWidget()
+        grid = QtWidgets.QGridLayout(tab)
+        self.check_web_output = QtWidgets.QCheckBox("OBS / tarayıcı çıktısı")
+        self.check_web_output.setChecked(self.config.web_output_enabled)
+        self.check_web_output.setToolTip(
+            "Altyazıyı yerel bir sayfa olarak verir; OBS'te Browser Source olarak eklenir.\n"
+            "Yalnızca bu bilgisayardan erişilir ve bağlantıdaki anahtarı ister.")
+        self.web_port_spin = QtWidgets.QSpinBox()
+        self.web_port_spin.setRange(1024, 65535)
+        self.web_port_spin.setValue(self.config.web_output_port)
+        self.copy_web_url_button = QtWidgets.QPushButton("Bağlantıyı kopyala")
+        grid.addWidget(self.check_web_output, 0, 0, 1, 3)
+        grid.addWidget(QtWidgets.QLabel("Port:"), 1, 0)
+        grid.addWidget(self.web_port_spin, 1, 1)
+        grid.addWidget(self.copy_web_url_button, 1, 2)
+        hint = QtWidgets.QLabel("OBS: Kaynak ekle > Tarayıcı, genişlik 1920, yükseklik 250. "
+                                "Görünüm: bağlantıya &size=48&show=both&bg=0.4 eklenebilir.")
+        hint.setWordWrap(True)
+        grid.addWidget(hint, 2, 0, 1, 3)
+        grid.setRowStretch(3, 1)
+        return tab
+
+    def _web_url(self) -> str:
+        port = self._web.port if self._web is not None else self.config.web_output_port
+        return f"http://127.0.0.1:{port}/overlay?token={self.config.web_output_token}"
+
+    def _copy_web_url(self) -> None:
+        QtWidgets.QApplication.clipboard().setText(self._web_url())
+        self._append_log("Yayın çıktısı bağlantısı panoya kopyalandı.")
+
+    def _start_web_output(self) -> None:
+        if not self.config.web_output_enabled or self._web is not None:
+            return
+        # Port doluysa birkaç sonrakini deniyoruz; kullanılan bağlantı günlükte yazıyor
+        for port in range(self.config.web_output_port, self.config.web_output_port + 5):
+            server = WebOutputServer(port, self.config.web_output_token)
+            try:
+                server.start()
+            except OSError:
+                continue
+            self._web = server
+            self._append_log(f"Yayın çıktısı açık: {self._web_url()}")
+            return
+        self._append_warning(f"Yayın çıktısı açılamadı: {self.config.web_output_port} ve sonraki portlar dolu.")
+
+    def _stop_web_output(self) -> None:
+        if self._web is not None:
+            self._web.publish({"kind": "clear"})
+            self._web.stop()
+            self._web = None
+
+    def _publish_web(self, original: str, translated: str) -> None:
+        if self._web is not None:
+            self._web.publish({"kind": "line", "original": original, "translated": translated})
+
     def _build_tuning_box(self) -> QtWidgets.QWidget:
         box = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(box)
@@ -370,6 +430,7 @@ class MainWindow(QtWidgets.QMainWindow):
         tabs = QtWidgets.QTabWidget()
         tabs.addTab(sensitivity, "Hassasiyet")
         tabs.addTab(appearance, "Altyazı görünümü")
+        tabs.addTab(self._build_output_tab(), "Yayın çıktısı")
 
         self.level_bar = QtWidgets.QProgressBar()
         self.level_bar.setRange(0, 100)
@@ -415,6 +476,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.preview_voice_button.clicked.connect(self._preview_voice)
         self.engine_combo.currentIndexChanged.connect(self._sync_config_from_ui)
         self.whisper_model_combo.currentIndexChanged.connect(self._sync_config_from_ui)
+        self.check_web_output.toggled.connect(self._sync_config_from_ui)
+        self.web_port_spin.valueChanged.connect(self._sync_config_from_ui)
+        self.copy_web_url_button.clicked.connect(self._copy_web_url)
         self.translation_combo.activated.connect(self._on_translation_engine_chosen)
         self.translation_combo.currentIndexChanged.connect(self._sync_config_from_ui)
         self.llm_key_button.clicked.connect(self._ask_llm_key)
@@ -562,6 +626,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config.show_original = self.check_show_original.isChecked()
         self.config.streaming_enabled = self.check_streaming.isChecked()
         self.config.gate_mode = "auto" if self.check_auto_gate.isChecked() else "rms"
+        self.config.web_output_enabled = self.check_web_output.isChecked()
+        self.config.web_output_port = self.web_port_spin.value()
         self.config.stt_engine = self.engine_combo.currentData() or "google"
         self.config.whisper_model = self.whisper_model_combo.currentData() or "base"
         engine = self.translation_combo.currentData() or "classic"
@@ -658,11 +724,13 @@ class MainWindow(QtWidgets.QMainWindow):
         save_config(self.config, self._settings)
         drain(self._audio_queue)
         self._configure_translation_engine()
+        self._start_web_output()
         self._warm_up_services()
 
         self._pipeline = PipelineWorker(self.config, self._audio_queue, self._stt,
                                         self._translator, self._tts, parent=self)
         self._pipeline.subtitle_ready.connect(self.overlay.show_subtitle)
+        self._pipeline.subtitle_ready.connect(self._publish_web)
         self._pipeline.line_finalized.connect(self._on_line_finalized)
         self._pipeline.log_message.connect(self._append_log)
         self._pipeline.error_occurred.connect(self._append_warning)
@@ -705,6 +773,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_run_state()
         self.level_bar.setValue(0)
         self.overlay.clear()
+        self._stop_web_output()
         self.overlay.hide()
         self._append_log("■ Durduruldu.")
         self.status_bar.showMessage("Hazır.")

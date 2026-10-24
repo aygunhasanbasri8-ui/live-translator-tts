@@ -93,6 +93,10 @@ class AppConfig:
     subtitle_color: str = "#FFFFFF"
     show_original: bool = True
 
+    web_output_enabled: bool = False     # OBS Browser Source / tarayıcı için yerel çıktı
+    web_output_port: int = 8765
+    web_output_token: str = ""           # ilk açılışta üretilip saklanıyor
+
     mute_capture_while_dubbing: bool = True
     dubbing_tail_sec: float = 0.45       # dublaj bittikten sonra da bir süre dinleme
 

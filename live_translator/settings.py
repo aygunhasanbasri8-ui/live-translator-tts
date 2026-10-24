@@ -12,6 +12,7 @@ PERSISTED_FIELDS = (
     "source_lang", "target_lang", "dubbing_enabled", "voice", "tts_rate",
     "stt_engine", "whisper_model", "streaming_enabled", "show_original",
     "translation_engine", "llm_model",
+    "web_output_enabled", "web_output_port", "web_output_token",
     "silence_threshold", "silence_duration", "gate_mode",
     "subtitle_font_size", "subtitle_width_pct", "subtitle_bottom_margin", "subtitle_opacity",
     "subtitle_screen", "subtitle_show_previous", "subtitle_color",
