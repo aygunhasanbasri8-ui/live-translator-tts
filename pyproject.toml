@@ -23,6 +23,8 @@ dependencies = [
 shortcuts = ["keyboard>=0.13", "pynput>=1.7"]
 audio = ["pygame>=2.5"]
 whisper = ["faster-whisper>=1.0"]
+# Bağlamlı Claude çevirisi; anahtar Windows Kimlik Bilgisi Yöneticisi'nde (keyring)
+llm = ["anthropic>=2.0,<3", "keyring>=24"]
 dev = ["pytest>=8", "ruff>=0.6"]
 build = ["pyinstaller>=6,<7"]
 

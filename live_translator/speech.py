@@ -19,6 +19,7 @@ from deep_translator import exceptions as dt_errors
 
 from .capture import AudioSegment
 from .providers import Provider, ServiceUnavailable, call_first_available, describe
+from .llm_translate import is_transient_llm
 from .translation_cache import LruCache, normalize
 from .whisper_stt import WhisperLoadError, WhisperRecognizer, has_speech, whisper_available
 
@@ -158,6 +159,10 @@ def _is_transient_translation(exc: Exception) -> bool:
                             requests.RequestException, OSError, _QuotaExceeded))
 
 
+def _is_transient_any(exc: Exception) -> bool:
+    return _is_transient_translation(exc) or is_transient_llm(exc)
+
+
 class TranslatorService:
     """Aynı cümleler (kısmi sonuçlar, tekrarlar) sık geldiği için küçük bir önbellekle."""
 
@@ -181,12 +186,26 @@ class TranslatorService:
         # herkese dayatıyordu
         if not isinstance(deep_translator.google.requests, _PooledRequests):
             deep_translator.google.requests = _PooledRequests(self._session, timeout=6)
-        self._providers = (
+        self._classic = (
             Provider("Google", self._google_api),
             Provider("Google web", self._google),
             # Anahtarsız kullanımda günlük kota dar, kısmi sonuçlara harcanmıyor.
             Provider("MyMemory", self._mymemory, finals_only=True),
         )
+        self._providers = self._classic
+        self._llm = None
+
+    def set_llm(self, llm) -> None:
+        """Claude çevirmenini zincirin başına koyar (None: yalnızca klasik zincir).
+
+        Yalnızca kesin cümlelerde çağrılıyor; hata ya da bekleme olursa cümle
+        Google'la çevriliyor, altyazı kesilmiyor.
+        """
+        self._llm = llm
+        if llm is None:
+            self._providers = self._classic
+        else:
+            self._providers = (Provider("Claude", llm.translate, finals_only=True),) + self._classic
 
     def translate(self, text: str, source: str, target: str, is_final: bool = True) -> str:
         text = (text or "").strip()
@@ -195,7 +214,9 @@ class TranslatorService:
         if source == target:
             return text
 
-        key = (normalize(text), source, target)
+        llm = self._llm
+        # Bağlamlı çeviri klasik zincirin sonucuyla karışmasın
+        key = (normalize(text), source, target, "llm" if llm is not None and is_final else "classic")
         cached = self._finals.get(key)
         if cached is None and not is_final:
             cached = self._partials.get(key)
@@ -203,7 +224,7 @@ class TranslatorService:
             return cached
 
         translated = call_first_available(self._providers, (text, source, target), is_final,
-                                          _is_transient_translation)
+                                          _is_transient_any)
         translated = (translated or "").strip()
         if not translated:
             # Sağlayıcı boş döndü: metni olduğu gibi göster ama önbelleğe yazma,
@@ -211,6 +232,8 @@ class TranslatorService:
             return text
 
         (self._finals if is_final else self._partials).put(key, translated)
+        if llm is not None and is_final:
+            llm.context.add(text, translated, source, target)
         return translated
 
     def status(self) -> str:

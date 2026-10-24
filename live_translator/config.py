@@ -67,6 +67,8 @@ class AppConfig:
     tts_rate: str = "+15%"
 
     stt_engine: str = "google"           # "google" ya da "whisper" (faster-whisper kuruluysa)
+    translation_engine: str = "classic"  # "classic" (Google/MyMemory) ya da "claude" (bağlamlı, anahtar ister)
+    llm_model: str = "claude-haiku-5-5"
     whisper_model: str = "base"
 
     target_sample_rate: int = 16000      # STT'ye giden örnekleme hızı

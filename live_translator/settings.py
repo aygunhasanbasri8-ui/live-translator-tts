@@ -11,6 +11,7 @@ from .log import LOGGER
 PERSISTED_FIELDS = (
     "source_lang", "target_lang", "dubbing_enabled", "voice", "tts_rate",
     "stt_engine", "whisper_model", "streaming_enabled", "show_original",
+    "translation_engine", "llm_model",
     "silence_threshold", "silence_duration",
     "subtitle_font_size", "subtitle_width_pct", "subtitle_bottom_margin", "subtitle_opacity",
     "subtitle_screen", "subtitle_show_previous", "subtitle_color",

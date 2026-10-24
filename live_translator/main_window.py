@@ -14,6 +14,8 @@ from .audio_player import create_audio_player
 from .capture import AudioSegment, LoopbackAudioCapturer
 from .config import AUTO_LANGUAGE, LANGUAGES, AppConfig
 from .hotkeys import HotkeyManager
+from .llm_translate import (MODELS as LLM_MODELS, ClaudeTranslator, ConversationContext, Glossary,
+                            anthropic_available, load_api_key, mask_key, save_api_key)
 from .log import LOGGER
 from .overlay import SubtitleOverlay
 from .pipeline import PipelineWorker
@@ -29,6 +31,17 @@ TTS_RATES = ("+0%", "+10%", "+15%", "+25%", "+40%")
 SUBTITLE_COLORS = (("Beyaz", "#FFFFFF"), ("Sarı", "#FFE14D"), ("Açık yeşil", "#B5F5A8"),
                    ("Açık mavi", "#A8D8FF"))
 BUTTON_STYLE = "QPushButton { padding: 10px; font-weight: bold; }"
+LLM_PRIVACY_TEXT = (
+    "Claude çevirisi açıkken konuşmanın METNİ (ses değil), önceki birkaç cümle ve\n"
+    "sözlükten ilgili terimler Anthropic API'sine gönderilir. İstekler sizin\n"
+    "anahtarınızla faturalanır (Haiku ile saatlik konuşma yaklaşık birkaç sent).\n\n"
+    "Devam edilsin mi?"
+)
+
+
+def _config_dir() -> str:
+    base = os.environ.get("APPDATA") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(base, "LiveTranslator")
 
 
 def _select(combo: QtWidgets.QComboBox, value, fallback=None) -> None:
@@ -57,6 +70,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._speaking_flag = threading.Event()
         self._stt = SpeechToTextService()
         self._translator = TranslatorService()
+        self._llm_context = ConversationContext()
+        self._glossary = Glossary(os.path.join(_config_dir(), "glossary.json"))
         self._tts = TTSService(create_audio_player(), self._speaking_flag,
                                on_error=self._thread_warning.emit)
         self._thread_warning.connect(self._append_warning)
@@ -174,6 +189,36 @@ class MainWindow(QtWidgets.QMainWindow):
         engine_row.addWidget(self.whisper_model_combo)
         layout.addWidget(QtWidgets.QLabel("Tanıma motoru:"), 2, 0)
         layout.addLayout(engine_row, 2, 1, 1, 2)
+
+        self.translation_combo = QtWidgets.QComboBox()
+        self.translation_combo.addItem("Klasik (Google, ücretsiz)", "classic")
+        for model, label in LLM_MODELS:
+            self.translation_combo.addItem(f"{label}: bağlamlı", f"claude:{model}")
+        self.translation_combo.setToolTip(
+            "Claude önceki cümleleri ve sözlüğünüzü de dikkate alarak çevirir (yalnız kesin\n"
+            "cümlelerde; kısmi altyazılar yine Google'la akar). Kendi Anthropic anahtarınız gerekir.\n"
+            "Hata ya da gecikmede cümle Google'la çevrilir.")
+        current = ("classic" if self.config.translation_engine != "claude"
+                   else f"claude:{self.config.llm_model}")
+        _select(self.translation_combo, current, "classic")
+        self.llm_key_button = QtWidgets.QToolButton()
+        self.llm_key_button.setText("Anahtar…")
+        self.llm_key_button.setToolTip("Anthropic API anahtarı (Windows Kimlik Bilgisi Yöneticisi'nde saklanır)")
+        self.glossary_button = QtWidgets.QToolButton()
+        self.glossary_button.setText("Sözlük…")
+        self.glossary_button.setToolTip("Oyun terimleri, karakter adları gibi sabit çeviriler (JSON dosyası)")
+        if not anthropic_available():
+            for i in range(1, self.translation_combo.count()):
+                self.translation_combo.model().item(i).setEnabled(False)
+            self.translation_combo.setToolTip("Claude çevirisi için: pip install \".[llm]\"")
+            self.llm_key_button.setEnabled(False)
+
+        translation_row = QtWidgets.QHBoxLayout()
+        translation_row.addWidget(self.translation_combo, 1)
+        translation_row.addWidget(self.llm_key_button)
+        translation_row.addWidget(self.glossary_button)
+        layout.addWidget(QtWidgets.QLabel("Çeviri motoru:"), 3, 0)
+        layout.addLayout(translation_row, 3, 1, 1, 2)
         return box
 
     def _build_mode_box(self) -> QtWidgets.QGroupBox:
@@ -362,6 +407,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.preview_voice_button.clicked.connect(self._preview_voice)
         self.engine_combo.currentIndexChanged.connect(self._sync_config_from_ui)
         self.whisper_model_combo.currentIndexChanged.connect(self._sync_config_from_ui)
+        self.translation_combo.activated.connect(self._on_translation_engine_chosen)
+        self.translation_combo.currentIndexChanged.connect(self._sync_config_from_ui)
+        self.llm_key_button.clicked.connect(self._ask_llm_key)
+        self.glossary_button.clicked.connect(self._open_glossary)
         self.target_combo.currentIndexChanged.connect(self._on_target_changed)
         self.radio_subtitle.toggled.connect(self._sync_config_from_ui)
         self.radio_dubbing.toggled.connect(self._sync_config_from_ui)
@@ -505,6 +554,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config.streaming_enabled = self.check_streaming.isChecked()
         self.config.stt_engine = self.engine_combo.currentData() or "google"
         self.config.whisper_model = self.whisper_model_combo.currentData() or "base"
+        engine = self.translation_combo.currentData() or "classic"
+        if engine.startswith("claude:"):
+            self.config.translation_engine, self.config.llm_model = "claude", engine.split(":", 1)[1]
+        else:
+            self.config.translation_engine = "classic"
         if self._stt.whisper is not None:
             self._stt.whisper.set_model_size(self.config.whisper_model)
             self._preload_whisper()
@@ -533,6 +587,56 @@ class MainWindow(QtWidgets.QMainWindow):
 
         threading.Thread(target=load, name="WhisperLoad", daemon=True).start()
 
+    def _on_translation_engine_chosen(self, index: int) -> None:
+        """Claude seçilince bir kez gizlilik onayı; reddedilirse klasiğe döner."""
+        data = self.translation_combo.itemData(index) or "classic"
+        if not data.startswith("claude:") or self._settings.value("llm_privacy_ok", False, type=bool):
+            return
+        answer = QtWidgets.QMessageBox.question(self, "Claude çevirisi", LLM_PRIVACY_TEXT)
+        if answer == QtWidgets.QMessageBox.StandardButton.Yes:
+            self._settings.setValue("llm_privacy_ok", True)
+            if not load_api_key():
+                self._ask_llm_key()
+        else:
+            _select(self.translation_combo, "classic")
+
+    def _ask_llm_key(self) -> None:
+        key, ok = QtWidgets.QInputDialog.getText(
+            self, "Anthropic API anahtarı",
+            "Anahtar (sk-ant-...). Boş bırakıp Tamam'a basarsanız kayıtlı anahtar silinir:",
+            QtWidgets.QLineEdit.EchoMode.Password)
+        if not ok:
+            return
+        try:
+            save_api_key(key.strip())
+        except Exception as exc:
+            QtWidgets.QMessageBox.warning(
+                self, "Anahtar kaydedilemedi",
+                f"{mask_key(str(exc))}\n\nkeyring kurulu değilse ANTHROPIC_API_KEY ortam değişkenini kullanın.")
+            return
+        self._append_log("Claude anahtarı kaydedildi." if key.strip() else "Claude anahtarı silindi.")
+
+    def _open_glossary(self) -> None:
+        try:
+            self._glossary.write_template()
+        except OSError as exc:
+            QtWidgets.QMessageBox.warning(self, "Sözlük açılamadı", str(exc))
+            return
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(self._glossary.path))
+        self._append_log(f"Sözlük: {self._glossary.path} (kaydedince bir sonraki cümlede geçerli olur)")
+
+    def _configure_translation_engine(self) -> None:
+        if self.config.translation_engine != "claude":
+            self._translator.set_llm(None)
+            return
+        if not anthropic_available() or not load_api_key():
+            self._append_warning("Claude çevirisi seçili ama anahtar ya da paket yok; klasik çeviri kullanılıyor.")
+            self._translator.set_llm(None)
+            return
+        self._translator.set_llm(ClaudeTranslator(self.config.llm_model, self._glossary, self._llm_context,
+                                                  on_disabled=self._thread_warning.emit))
+        self._append_log(f"Çeviri: {self.config.llm_model} (bağlamlı), yedek Google.")
+
     @pyqtSlot()
     def start_translation(self) -> None:
         if self._running:
@@ -543,6 +647,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._sync_config_from_ui()
         save_config(self.config, self._settings)
         drain(self._audio_queue)
+        self._configure_translation_engine()
         self._warm_up_services()
 
         self._pipeline = PipelineWorker(self.config, self._audio_queue, self._stt,
@@ -584,6 +689,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._tts.clear()
         drain(self._audio_queue)
+        # Bir sonraki oturumun ilk cümlesi bu oturumun bağlamıyla çevrilmesin
+        self._llm_context.clear()
 
         self._update_run_state()
         self.level_bar.setValue(0)
