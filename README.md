@@ -2,6 +2,8 @@
 
 English | [Türkçe](README.tr.md)
 
+[![CI](https://github.com/aygunhasanbasri8-ui/live-translator-tts/actions/workflows/ci.yml/badge.svg)](https://github.com/aygunhasanbasri8-ui/live-translator-tts/actions/workflows/ci.yml)
+
 A desktop app that listens to the audio playing on your computer (YouTube, Zoom, games...)
 and shows it as translated subtitles at the bottom of the screen. Optionally it also dubs
 the translation out loud with Edge-TTS. It captures system audio, not the microphone, so it
@@ -175,7 +177,11 @@ python selftest.py            # --no-wait: do not wait for Enter at the end
 `python -m live_translator --smoke` (or `CanliCevirmen.exe --smoke`) builds the main window,
 closes it after a second and exits with 0; it is a quick check that a build really starts.
 
-There is currently no CI workflow in the repo.
+GitHub Actions runs ruff and the tests on Ubuntu and Windows (Python 3.11 and 3.12) for every push to
+`main` and every pull request, then builds the folder exe on Windows, starts it with `--smoke` and fails
+if it grows past 260 MB. Pushing a `vX.Y.Z` tag that matches `_version.py` builds both exes and publishes
+a GitHub Release with `LiveTranslator-vX.Y.Z-win64.zip`, `LiveTranslator-vX.Y.Z-portable.exe` and
+`SHA256SUMS.txt`.
 
 ## Building an exe
 
