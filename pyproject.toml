@@ -4,13 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "live-translator"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Windows system-audio translator with subtitles and optional dubbing"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "PyQt6>=6.6",
-    "PyAudioWPatch>=0.2.12",
+    # Yalnızca Windows tekerleği var; diğer platformlarda kurulum düşmesin (testler sahte modülle koşuyor)
+    "PyAudioWPatch>=0.2.12; sys_platform == 'win32'",
     "SpeechRecognition>=3.10",
     "deep-translator>=1.11",
     "edge-tts>=6.1",
@@ -22,13 +23,29 @@ dependencies = [
 shortcuts = ["keyboard>=0.13", "pynput>=1.7"]
 audio = ["pygame>=2.5"]
 whisper = ["faster-whisper>=1.0"]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.6"]
+build = ["pyinstaller>=6,<7"]
 
 [project.scripts]
 live-translator = "live_translator:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "live_translator._version.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["live_translator*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "windows_audio: gerçek WASAPI loopback cihazı ister",
+    "network: gerçek ağa çıkar",
+    "live: ücretli bir API'yi çağırır",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B"]

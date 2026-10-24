@@ -11,12 +11,13 @@ Derlemek için:
 
 Çıktı:  dist\\CanliCevirmen_klasor\\CanliCevirmen.exe
 """
+import os
 import sys
 
 sys.path.insert(0, SPECPATH)
 from pyinstaller_ortak import analysis_options, without_pocketsphinx
 
-a = Analysis(["live_translator\\__main__.py"], **analysis_options())
+a = Analysis([os.path.join("live_translator", "__main__.py")], **analysis_options())
 a.datas = without_pocketsphinx(a.datas)
 
 pyz = PYZ(a.pure)

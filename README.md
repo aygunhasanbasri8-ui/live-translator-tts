@@ -156,14 +156,24 @@ pyinstaller_ortak.py  shared settings of the PyInstaller specs
 Tests that need no hardware or network:
 
 ```powershell
+pip install -e ".[dev]"
 python -m pytest
+ruff check .
 ```
+
+The tests also run outside Windows: PyAudioWPatch only ships Windows wheels, so
+`tests/conftest.py` puts a small stand-in module in its place when it is missing, and tests
+marked `windows_audio` are skipped there. Importing the package no longer exits when a
+dependency is missing; the check runs when the app starts.
 
 To check the real device, STT, translation and TTS chain:
 
 ```powershell
-python selftest.py
+python selftest.py            # --no-wait: do not wait for Enter at the end
 ```
+
+`python -m live_translator --smoke` (or `CanliCevirmen.exe --smoke`) builds the main window,
+closes it after a second and exits with 0; it is a quick check that a build really starts.
 
 There is currently no CI workflow in the repo.
 
@@ -181,6 +191,7 @@ and prints the result to the console.
 
 Outputs: `dist\CanliCevirmen.exe` (single file), `dist\CanliCevirmen_klasor\CanliCevirmen.exe`
 (folder) and `dist\selftest.exe`. Local Whisper is not included in the exe because of its size.
+The version lives in `live_translator/_version.py` and is shown in the window title.
 
 ## Privacy
 

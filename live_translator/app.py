@@ -3,8 +3,9 @@ import logging.handlers
 import os
 import sys
 
-from PyQt6 import QtWidgets
+from PyQt6 import QtCore, QtWidgets
 
+from ._version import __version__
 from .log import LOGGER
 from .main_window import MainWindow
 
@@ -50,12 +51,20 @@ def main() -> int:
     if sys.platform != "win32":
         print("UYARI: WASAPI loopback yakalama yalnızca Windows'ta desteklenir.", file=sys.stderr)
 
+    # --smoke: pencereyi kurup bir saniye sonra kapanır; CI'da donmuş exe'nin
+    # gerçekten açıldığını (eksik gizli import, bozuk paket) çıkış koduyla görmek için.
+    smoke = "--smoke" in sys.argv
+
     QtWidgets.QApplication.setApplicationName("Live System Audio Translator")
+    QtWidgets.QApplication.setApplicationVersion(__version__)
     app = QtWidgets.QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(True)
 
     window = MainWindow()
     window.show()
+    if smoke:
+        LOGGER.info("Duman testi: sürüm %s, pencere açıldı", __version__)
+        QtCore.QTimer.singleShot(1000, app.quit)
 
     code = app.exec()
     # Ağda takılı bir tanıma/çeviri isteği varsa yorumlayıcı kapanışta onu

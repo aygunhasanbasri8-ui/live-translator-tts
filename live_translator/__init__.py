@@ -3,6 +3,8 @@
 import importlib
 import sys
 
+from ._version import __version__
+
 # (import adı, pip paketi)
 _REQUIRED = (
     ("numpy", "numpy"),
@@ -14,9 +16,11 @@ _REQUIRED = (
 )
 
 
-def _check_dependencies() -> None:
+def check_dependencies() -> None:
     # Alt modüller bunları doğrudan import ediyor; eksik olanı traceback
     # yerine tek bir anlaşılır mesajla söylemek için önce burada deniyoruz.
+    # Paket import'unda değil başlatırken çalışıyor: testler ve araçlar
+    # (sahte pyaudiowpatch ile) paketi Windows dışında da açabilsin.
     missing = []
     for module, package in _REQUIRED:
         try:
@@ -32,33 +36,40 @@ def _check_dependencies() -> None:
         sys.exit(1)
 
 
-_check_dependencies()
+def main() -> int:
+    check_dependencies()
+    from .app import main as run
 
-from .app import main  # noqa: E402
-from .audio_math import AudioMath  # noqa: E402
-from .audio_player import create_audio_player  # noqa: E402
-from .capture import AudioSegment, LoopbackAudioCapturer  # noqa: E402
-from .config import LANGUAGES, AppConfig, LanguageProfile  # noqa: E402
-from .main_window import MainWindow  # noqa: E402
-from .overlay import SubtitleOverlay  # noqa: E402
-from .pipeline import PipelineWorker  # noqa: E402
-from .speech import SpeechToTextService, TranslatorService  # noqa: E402
-from .tts import TTSRequest, TTSService  # noqa: E402
+    return run()
 
-__all__ = [
-    "AppConfig",
-    "AudioMath",
-    "AudioSegment",
-    "LANGUAGES",
-    "LanguageProfile",
-    "LoopbackAudioCapturer",
-    "MainWindow",
-    "PipelineWorker",
-    "SpeechToTextService",
-    "SubtitleOverlay",
-    "TTSRequest",
-    "TTSService",
-    "TranslatorService",
-    "create_audio_player",
-    "main",
-]
+
+# Eski "from live_translator import MainWindow" kullanımları çalışmaya devam
+# etsin; modüller ancak istendiğinde yükleniyor.
+_EXPORTS = {
+    "AppConfig": "config",
+    "AudioMath": "audio_math",
+    "AudioSegment": "capture",
+    "LANGUAGES": "config",
+    "LanguageProfile": "config",
+    "LoopbackAudioCapturer": "capture",
+    "MainWindow": "main_window",
+    "PipelineWorker": "pipeline",
+    "SpeechToTextService": "speech",
+    "SubtitleOverlay": "overlay",
+    "TTSRequest": "tts",
+    "TTSService": "tts",
+    "TranslatorService": "speech",
+    "create_audio_player": "audio_player",
+}
+
+
+def __getattr__(name: str):
+    module = _EXPORTS.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(importlib.import_module(f".{module}", __name__), name)
+    globals()[name] = value
+    return value
+
+
+__all__ = ["__version__", "check_dependencies", "main", *_EXPORTS]

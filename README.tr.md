@@ -156,14 +156,24 @@ pyinstaller_ortak.py  PyInstaller spec'lerinin ortak ayarları
 Donanım ve ağ gerektirmeyen testler:
 
 ```powershell
+pip install -e ".[dev]"
 python -m pytest
+ruff check .
 ```
+
+Testler Windows dışında da çalışıyor: PyAudioWPatch yalnızca Windows tekerleği yayımladığı
+için kurulu değilse `tests/conftest.py` yerine küçük bir taklit modül koyuyor, `windows_audio`
+işaretli testler orada atlanıyor. Paketi import etmek artık eksik bağımlılıkta süreci
+kapatmıyor; kontrol uygulama başlarken yapılıyor.
 
 Gerçek cihaz, STT, çeviri ve TTS zincirini sınamak için:
 
 ```powershell
-python selftest.py
+python selftest.py            # --no-wait: sonda Enter beklemesin
 ```
+
+`python -m live_translator --smoke` (ya da `CanliCevirmen.exe --smoke`) ana pencereyi kurar,
+bir saniye sonra kapatır ve 0 ile çıkar; bir derlemenin gerçekten açıldığını hızlıca görmek için.
 
 Şu an repoda CI iş akışı yok.
 
@@ -181,6 +191,7 @@ sınayıp sonucu konsola yazıyor.
 
 Çıktılar: `dist\CanliCevirmen.exe` (tek dosya), `dist\CanliCevirmen_klasor\CanliCevirmen.exe`
 (klasör) ve `dist\selftest.exe`. Yerel Whisper boyut nedeniyle exe'ye dahil edilmiyor.
+Sürüm `live_translator/_version.py`'de tutuluyor ve pencere başlığında görünüyor.
 
 ## Gizlilik
 
