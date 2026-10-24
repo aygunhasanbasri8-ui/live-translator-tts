@@ -17,6 +17,8 @@ import edge_tts
 
 import live_translator as LT
 
+LT.check_dependencies()
+
 OK, FAIL = "  [OK]  ", "  [HATA]"
 results = []
 
@@ -103,9 +105,11 @@ except OSError:
 
 print("=" * 64)
 print(f"SONUÇ: {sum(results)}/{len(results)} geçti")
-print("Kapatmak için Enter'a basın...")
-try:
-    input()
-except EOFError:
-    pass
+# --no-wait: CI ya da betikten çağrılınca Enter beklemesin
+if "--no-wait" not in sys.argv:
+    print("Kapatmak için Enter'a basın...")
+    try:
+        input()
+    except EOFError:
+        pass
 sys.exit(0 if all(results) else 1)

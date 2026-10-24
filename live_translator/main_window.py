@@ -9,6 +9,7 @@ from typing import Optional
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal, pyqtSlot
 
+from ._version import __version__
 from .audio_player import create_audio_player
 from .capture import AudioSegment, LoopbackAudioCapturer
 from .config import AUTO_LANGUAGE, LANGUAGES, AppConfig
@@ -81,7 +82,7 @@ class MainWindow(QtWidgets.QMainWindow):
         QTimer.singleShot(60, self.overlay.prime)
 
     def _build_ui(self) -> None:
-        self.setWindowTitle("Canlı Sistem Sesi Çevirmeni — Altyazı + Dublaj")
+        self.setWindowTitle(f"Canlı Sistem Sesi Çevirmeni — Altyazı + Dublaj  v{__version__}")
         self.setMinimumWidth(560)
 
         central = QtWidgets.QWidget(self)
