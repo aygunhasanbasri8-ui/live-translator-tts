@@ -19,6 +19,7 @@ from deep_translator import exceptions as dt_errors
 
 from .capture import AudioSegment
 from .providers import Provider, ServiceUnavailable, call_first_available, describe
+from .translation_cache import LruCache, normalize
 from .whisper_stt import WhisperLoadError, WhisperRecognizer, has_speech, whisper_available
 
 
@@ -160,7 +161,10 @@ def _is_transient_translation(exc: Exception) -> bool:
 class TranslatorService:
     """Aynı cümleler (kısmi sonuçlar, tekrarlar) sık geldiği için küçük bir önbellekle."""
 
-    _CACHE_LIMIT = 256
+    # Kısmi sonuçlar kesin cümlelerden çok daha sık geliyor ve çoğu bir daha
+    # tekrarlanmıyor; ayrı ve küçük tutulmazsa kesin cümleleri önbellekten itiyorlar.
+    _FINAL_CACHE_LIMIT = 2048
+    _PARTIAL_CACHE_LIMIT = 64
     _MYMEMORY_URL = "https://api.mymemory.translated.net/get"
     # Google Translate web sayfasının kendi kullandığı uç ve sayfaya gömülü
     # herkese açık anahtar. deep-translator'ın kazıdığı mobil sayfadan ayrı
@@ -170,8 +174,8 @@ class TranslatorService:
     _GOOGLE_API_KEY = "AIzaSyDLEeFI5OtFBwYBIoK_jj5m32rZK5CkCXA"
 
     def __init__(self) -> None:
-        self._cache: dict[tuple[str, str, str], str] = {}
-        self._lock = threading.Lock()
+        self._finals = LruCache(self._FINAL_CACHE_LIMIT)
+        self._partials = LruCache(self._PARTIAL_CACHE_LIMIT)
         self._session = _KeepAliveSession()
         # Süreç başına bir kez; her örnekte değiştirmek son açılanın oturumunu
         # herkese dayatıyordu
@@ -191,20 +195,22 @@ class TranslatorService:
         if source == target:
             return text
 
-        key = (text, source, target)
-        with self._lock:
-            cached = self._cache.get(key)
+        key = (normalize(text), source, target)
+        cached = self._finals.get(key)
+        if cached is None and not is_final:
+            cached = self._partials.get(key)
         if cached is not None:
             return cached
 
         translated = call_first_available(self._providers, (text, source, target), is_final,
                                           _is_transient_translation)
-        translated = (translated or "").strip() or text
+        translated = (translated or "").strip()
+        if not translated:
+            # Sağlayıcı boş döndü: metni olduğu gibi göster ama önbelleğe yazma,
+            # yoksa o cümle oturum boyunca hiç çevrilmeden kalıyordu.
+            return text
 
-        with self._lock:
-            if len(self._cache) >= self._CACHE_LIMIT:
-                self._cache.pop(next(iter(self._cache)))
-            self._cache[key] = translated
+        (self._finals if is_final else self._partials).put(key, translated)
         return translated
 
     def status(self) -> str:
