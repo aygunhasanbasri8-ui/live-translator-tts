@@ -100,6 +100,15 @@ Kesinleşen cümleler bir dökümde birikiyor; "Altyazıları kaydet..." ile
 çeviri, orijinal ya da iki dilli SRT veya düz metin olarak kaydedilebiliyor.
 Zamanlar ilk cümleye göre, yani videoyu baştan izlerken kabaca hizalı.
 
+**Otomatik eşik** (Hassasiyet sekmesi, varsayılan kapalı): müzik ya da oyun sesinin
+altında arka plan sabit eşiğin üstünde kaldığı için cümle araları hiç görülmüyor, cümleler
+ancak 6 sn sınırında kesiliyordu. Kutu işaretliyken uygulama ses bandındaki enerjiyi
+(150-4500 Hz) ve son 10 sn'nin arka plan seviyesini ölçüyor; cümle bu seviyenin 1,8 katında
+başlıyor, 1,3 katının altında bitiyor, kaydırıcı da gerçek sessizlik için alt sınır oluyor.
+Sentetik bir testte (sabit bir akorun üstünde altı cümle) altı cümlenin altısını buldu, sabit
+eşik bunları dört-beş parçaya birleştirdi; temiz konuşmada ikisi aynı davranıyor. Gerçek
+içerikle Windows'ta ayar yapılması henüz bekliyor.
+
 Ayarlar (diller, mod, ses, hassasiyet, altyazı boyutu/rengi/konumu/opaklığı,
 pencere konumu) kapanışta ve her Başlat'ta kaydediliyor, bir sonraki
 açılışta aynen geliyor. Windows'ta kayıt defterinde

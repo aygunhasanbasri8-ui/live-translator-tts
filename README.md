@@ -101,6 +101,15 @@ subtitles) the translation, the original or a bilingual version can be saved as 
 plain text. Times are relative to the first sentence, so they line up roughly when you
 watch the video from the start.
 
+**Automatic threshold** (Sensitivity tab, off by default): under music or game audio the
+background stays above a fixed threshold, so sentence breaks are never seen and sentences
+are only cut at the 6 s limit. With the box ticked the app measures speech-band energy
+(150-4500 Hz) and the background level of the last 10 s; a sentence starts at 1.8x and
+ends below 1.3x of that level, and the slider becomes the lower bound for true silence. In
+a synthetic test (six sentences over a constant chord) it found all six sentences, where
+the fixed threshold merged them into four or five pieces; on clean speech both behave the
+same. Real-content tuning on Windows is still to be done.
+
 Settings (languages, mode, voice, sensitivity, subtitle size/color/position/opacity,
 window position) are saved on exit and on every Start and come back as they were on the
 next launch. On Windows they live in the registry under `HKCU\Software\LiveTranslator`;

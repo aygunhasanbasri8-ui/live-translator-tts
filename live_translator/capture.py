@@ -16,6 +16,7 @@ from .audio_math import AudioMath
 from .config import AppConfig
 from .log import LOGGER
 from .queues import put_dropping_oldest
+from .speech_gate import create_gate
 
 
 @dataclass
@@ -46,10 +47,11 @@ class SpeechSegmenter:
     SPLIT_SEARCH_SEC = 1.5
     _SPLIT_WINDOW_SEC = 0.06   # 20 ms patlamalı ünsüzlerin içine denk gelip kelime bölüyordu
 
-    def __init__(self, config: AppConfig, rate: int, sink: SegmentSink) -> None:
+    def __init__(self, config: AppConfig, rate: int, sink: SegmentSink, gate=None) -> None:
         self._config = config
         self._rate = rate
         self._sink = sink
+        self._gate = gate if gate is not None else create_gate(config, rate)
         self._pre_roll_max = max(1, int(config.pre_roll_sec * rate))
         self._pre_roll: list[np.ndarray] = []
         self._pre_roll_len = 0
@@ -62,7 +64,7 @@ class SpeechSegmenter:
 
     def feed(self, mono: np.ndarray, level: float, now: float) -> None:
         cfg = self._config
-        is_voice = level >= cfg.silence_threshold
+        is_voice = self._gate.is_voice(mono, level, self.in_speech)
 
         if not self.in_speech:
             self._pre_roll.append(mono)

@@ -73,6 +73,7 @@ class AppConfig:
 
     target_sample_rate: int = 16000      # STT'ye giden örnekleme hızı
     silence_threshold: float = 0.010     # RMS eşiği (0.0 - 1.0)
+    gate_mode: str = "rms"               # "rms": sabit eşik, "auto": gürültü tabanına göre (müzik altında konuşma)
     silence_duration: float = 0.35       # cümle bitti sayılacak sessizlik (sn)
     min_segment_sec: float = 0.40        # bundan kısa segmentler atılır
     max_segment_sec: float = 6.0         # bu süreye ulaşınca zorla gönderilir

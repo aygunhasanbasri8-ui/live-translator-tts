@@ -277,6 +277,13 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self.threshold_value = QtWidgets.QLabel(f"{self.config.silence_threshold:.4f}")
 
+        self.check_auto_gate = QtWidgets.QCheckBox("Otomatik eşik (müzik / oyun sesi altında konuşma)")
+        self.check_auto_gate.setChecked(self.config.gate_mode == "auto")
+        self.check_auto_gate.setToolTip(
+            "Arka plan sesinin seviyesini izleyip cümle aralarını ona göre bulur.\n"
+            "Açıkken sessizlik eşiği yalnızca alt sınırdır. Bir sonraki Başlat'ta geçerli olur."
+        )
+
         # Gecikmenin doğrudan bileşeni: küçük değer altyazıyı hızlandırır
         # ama cümleler ortadan bölünebilir.
         self.silence_spin = QtWidgets.QDoubleSpinBox()
@@ -331,7 +338,8 @@ class MainWindow(QtWidgets.QMainWindow):
         grid.addWidget(self.threshold_value, 0, 2)
         grid.addWidget(QtWidgets.QLabel("Cümle sonu bekleme:"), 1, 0)
         grid.addWidget(self.silence_spin, 1, 1, 1, 2)
-        grid.setRowStretch(2, 1)
+        grid.addWidget(self.check_auto_gate, 2, 0, 1, 3)
+        grid.setRowStretch(3, 1)
 
         self.color_combo = QtWidgets.QComboBox()
         for name, color in SUBTITLE_COLORS:
@@ -418,6 +426,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.rate_combo.currentIndexChanged.connect(self._sync_config_from_ui)
         self.check_show_original.toggled.connect(self._sync_config_from_ui)
         self.check_streaming.toggled.connect(self._sync_config_from_ui)
+        self.check_auto_gate.toggled.connect(self._sync_config_from_ui)
         self.threshold_slider.valueChanged.connect(self._on_threshold_changed)
         self.silence_spin.valueChanged.connect(self._on_silence_changed)
         self.font_spin.valueChanged.connect(self._on_appearance_changed)
@@ -552,6 +561,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config.tts_rate = self.rate_combo.currentData() or "+15%"
         self.config.show_original = self.check_show_original.isChecked()
         self.config.streaming_enabled = self.check_streaming.isChecked()
+        self.config.gate_mode = "auto" if self.check_auto_gate.isChecked() else "rms"
         self.config.stt_engine = self.engine_combo.currentData() or "google"
         self.config.whisper_model = self.whisper_model_combo.currentData() or "base"
         engine = self.translation_combo.currentData() or "classic"
