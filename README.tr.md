@@ -106,28 +106,6 @@ açılışta aynen geliyor. Windows'ta kayıt defterinde
 `HKCU\Software\LiveTranslator` altında duruyor; silinirse varsayılanlara
 dönülüyor.
 
-Günlük `%LOCALAPPDATA%\LiveTranslator\live_translator.log` dosyasına da
-yazılıyor (pencereli exe'de konsol olmadığı için sorun ararken bakılacak yer).
-Beklenmeyen bir hata uygulamayı kapatmıyor, bu dosyaya düşüyor.
-
-## Nasıl çalışıyor
-
-1. `capture.py` sistem sesini WASAPI loopback ile alıyor, konuşmayı
-   sessizliklere göre cümlelere bölüyor. Duraksamadan 6 sn'yi geçen konuşma
-   kelime ortasından değil, son 1.5 sn'nin en sessiz anından bölünüyor.
-2. `speech.py` her parçayı Google Web Speech (ya da `whisper_stt.py`) ile
-   metne, Google/MyMemory ile hedef dile çeviriyor. Hangi sağlayıcının ne
-   zaman atlanacağı `providers.py`'de.
-3. `pipeline.py` parçaları paralel işliyor ama sonuçları geliş sırasıyla
-   yayınlıyor, altyazılar karışık sırada gelmiyor. Arkasından daha yenisi
-   gelmiş kısmi sonuçlar atlanıyor, bir işçi hep kesin cümleye ayrılıyor;
-   ağ yavaşken bile cümle sonu altyazısı beklemiyor.
-4. `overlay.py` altyazıyı ekranın altında, her şeyin üstünde gösteriyor.
-   Dublaj açıksa `tts.py` çeviriyi seslendiriyor.
-
-Arayüz `main_window.py`'de. Desteklenen diller ve sesler `config.py` içindeki
-`LANGUAGES` tablosunda; yeni dil eklemek için oraya bir satır yeterli.
-
 ### Claude çevirisi (isteğe bağlı)
 
 ```powershell
@@ -149,6 +127,28 @@ da ret yalnızca o cümleyi etkiliyor. **Sözlük…** `%APPDATA%\LiveTranslator
 
 Yalnızca cümlede ya da bağlamda geçen terimler gönderiliyor. Exe henüz Claude paketlerini
 içermiyor; kullanmak için kaynaktan çalıştırın.
+
+Günlük `%LOCALAPPDATA%\LiveTranslator\live_translator.log` dosyasına da
+yazılıyor (pencereli exe'de konsol olmadığı için sorun ararken bakılacak yer).
+Beklenmeyen bir hata uygulamayı kapatmıyor, bu dosyaya düşüyor.
+
+## Nasıl çalışıyor
+
+1. `capture.py` sistem sesini WASAPI loopback ile alıyor, konuşmayı
+   sessizliklere göre cümlelere bölüyor. Duraksamadan 6 sn'yi geçen konuşma
+   kelime ortasından değil, son 1.5 sn'nin en sessiz anından bölünüyor.
+2. `speech.py` her parçayı Google Web Speech (ya da `whisper_stt.py`) ile
+   metne, Google/MyMemory ile hedef dile çeviriyor. Hangi sağlayıcının ne
+   zaman atlanacağı `providers.py`'de.
+3. `pipeline.py` parçaları paralel işliyor ama sonuçları geliş sırasıyla
+   yayınlıyor, altyazılar karışık sırada gelmiyor. Arkasından daha yenisi
+   gelmiş kısmi sonuçlar atlanıyor, bir işçi hep kesin cümleye ayrılıyor;
+   ağ yavaşken bile cümle sonu altyazısı beklemiyor.
+4. `overlay.py` altyazıyı ekranın altında, her şeyin üstünde gösteriyor.
+   Dublaj açıksa `tts.py` çeviriyi seslendiriyor.
+
+Arayüz `main_window.py`'de. Desteklenen diller ve sesler `config.py` içindeki
+`LANGUAGES` tablosunda; yeni dil eklemek için oraya bir satır yeterli.
 
 ## Proje yapısı
 
