@@ -115,6 +115,18 @@ window position) are saved on exit and on every Start and come back as they were
 next launch. On Windows they live in the registry under `HKCU\Software\LiveTranslator`;
 if deleted, the defaults return.
 
+### OBS / browser output
+
+On the **Yayın çıktısı** tab tick "OBS / tarayıcı çıktısı" and start; **Bağlantıyı kopyala**
+copies a link like `http://127.0.0.1:8765/overlay?token=...`. In OBS add a Browser source
+with that URL (width 1920, height 250); the background is transparent. Appearance comes
+from the link: `&size=48` (pixels), `&show=both` (original above the translation),
+`&bg=0.4` (background opacity), `&color=%23ffe14d`, `&hold=6` (seconds before fading).
+The server listens on 127.0.0.1 only, needs the random token in the link and rejects
+requests whose `Origin` is another site, because any open web page could otherwise read
+the subtitles from localhost. It only pushes (Server-Sent Events), uses no extra package,
+sends the current line to a client that connects late, and is off unless ticked.
+
 ### Claude translation (optional)
 
 ```powershell

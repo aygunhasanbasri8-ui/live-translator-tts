@@ -115,6 +115,18 @@ açılışta aynen geliyor. Windows'ta kayıt defterinde
 `HKCU\Software\LiveTranslator` altında duruyor; silinirse varsayılanlara
 dönülüyor.
 
+### OBS / tarayıcı çıktısı
+
+**Yayın çıktısı** sekmesinde "OBS / tarayıcı çıktısı"nı işaretleyip başlatın; **Bağlantıyı
+kopyala** `http://127.0.0.1:8765/overlay?token=...` gibi bir bağlantıyı panoya alır. OBS'te bu
+adresle bir Tarayıcı kaynağı ekleyin (genişlik 1920, yükseklik 250); arka plan saydam. Görünüm
+bağlantıdan: `&size=48` (piksel), `&show=both` (orijinal çevirinin üstünde), `&bg=0.4` (zemin
+opaklığı), `&color=%23ffe14d`, `&hold=6` (sönmeden önceki saniye). Sunucu yalnızca
+127.0.0.1'de dinliyor, bağlantıdaki rastgele anahtarı istiyor ve `Origin`'i başka bir site
+olan istekleri reddediyor; yoksa açık herhangi bir web sayfası altyazıları localhost'tan
+okuyabilirdi. Yalnızca gönderiyor (Server-Sent Events), ek paket istemiyor, geç bağlanan
+istemciye ekrandaki satırı hemen veriyor ve işaretlenmedikçe kapalı.
+
 ### Claude çevirisi (isteğe bağlı)
 
 ```powershell
