@@ -2,6 +2,8 @@
 
 [English](README.md) | Türkçe
 
+[![CI](https://github.com/aygunhasanbasri8-ui/live-translator-tts/actions/workflows/ci.yml/badge.svg)](https://github.com/aygunhasanbasri8-ui/live-translator-tts/actions/workflows/ci.yml)
+
 Bilgisayarda çalan sesi (YouTube, Zoom, oyun...) dinleyip ekranın altında
 çevrilmiş altyazı olarak gösteren masaüstü uygulaması. İstenirse çeviriyi
 Edge-TTS ile seslendirip dublaj da yapıyor. Mikrofonu değil sistem sesini
@@ -175,7 +177,11 @@ python selftest.py            # --no-wait: sonda Enter beklemesin
 `python -m live_translator --smoke` (ya da `CanliCevirmen.exe --smoke`) ana pencereyi kurar,
 bir saniye sonra kapatır ve 0 ile çıkar; bir derlemenin gerçekten açıldığını hızlıca görmek için.
 
-Şu an repoda CI iş akışı yok.
+GitHub Actions `main`'e her push'ta ve her pull request'te ruff'ı ve testleri Ubuntu ve Windows'ta
+(Python 3.11 ve 3.12) çalıştırıyor; ardından Windows'ta klasör exe'sini derleyip `--smoke` ile açıyor ve
+260 MB'ı geçerse kırmızıya düşüyor. `_version.py` ile aynı `vX.Y.Z` etiketi push'lanınca iki exe derlenip
+`LiveTranslator-vX.Y.Z-win64.zip`, `LiveTranslator-vX.Y.Z-portable.exe` ve `SHA256SUMS.txt` ile GitHub
+Release yayımlanıyor.
 
 ## Exe almak
 

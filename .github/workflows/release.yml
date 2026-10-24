@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[shortcuts,audio,build]"
+      - name: Etiket sürümle aynı mı
+        shell: pwsh
+        run: |
+          $v = python -c "import live_translator._version as v; print(v.__version__)"
+          if ("v$v" -ne "${{ github.ref_name }}") { throw "etiket ${{ github.ref_name }} ama _version.py $v" }
+      - run: python -m PyInstaller --noconfirm live_translator_klasor.spec
+      - run: python -m PyInstaller --noconfirm live_translator.spec
+      - name: Duman testi
+        shell: pwsh
+        run: |
+          $env:QT_QPA_PLATFORM = "offscreen"
+          foreach ($exe in "dist\CanliCevirmen_klasor\CanliCevirmen.exe", "dist\CanliCevirmen.exe") {
+            $p = Start-Process $exe -ArgumentList "--smoke" -Wait -PassThru
+            if ($p.ExitCode -ne 0) { throw "$exe smoke başarısız: $($p.ExitCode)" }
+          }
+      - name: Paketle ve özet çıkar
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          Compress-Archive dist\CanliCevirmen_klasor "LiveTranslator-$tag-win64.zip"
+          Copy-Item dist\CanliCevirmen.exe "LiveTranslator-$tag-portable.exe"
+          Get-FileHash LiveTranslator-* -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } |
+            Set-Content SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            LiveTranslator-*
+            SHA256SUMS.txt
