@@ -14,6 +14,7 @@ only works on Windows (WASAPI loopback).
 - Captures system audio through WASAPI loopback and splits speech into sentences at silences.
 - Speech to text with Google Web Speech or, if installed, local Whisper; 37 languages are defined (`LANGUAGES` in `config.py`).
 - Translation tries three services in order (Google, Google web, MyMemory); when one rate-limits, the app backs off and moves to the next.
+- Optional context-aware translation with Claude (your own Anthropic key): the last few sentences and your glossary are taken into account, so pronouns, names and game terms stay consistent. Partial subtitles still come from Google; on any error the sentence falls back to the free chain.
 - Shows the translated subtitle in a transparent, click-through strip at the bottom of the screen, above everything else; color, size, width, height and opacity are adjustable, and on a multi-monitor setup you can pick the screen.
 - "Streaming mode": the subtitle is updated roughly once a second while speech is still going on.
 - Optional dubbing: the translation is spoken with Edge-TTS; it speeds up when it falls behind and switches to a backup voice if one is broken.
@@ -104,6 +105,28 @@ Settings (languages, mode, voice, sensitivity, subtitle size/color/position/opac
 window position) are saved on exit and on every Start and come back as they were on the
 next launch. On Windows they live in the registry under `HKCU\Software\LiveTranslator`;
 if deleted, the defaults return.
+
+### Claude translation (optional)
+
+```powershell
+pip install -e ".[llm]"
+```
+
+Pick "Claude Haiku" (fast, a few cents per hour of speech) or "Claude Sonnet" under
+**Translation engine**, confirm the privacy notice once and enter your Anthropic API key
+with **Key…**. The key is stored in the Windows Credential Manager through `keyring`, not
+in the registry; `ANTHROPIC_API_KEY` also works. Only final sentences go to Claude, with
+the previous four sentences as context (reset after 30 s of silence or a language change).
+If the key is invalid or the account has no credit, Claude is switched off for the session
+with one warning and Google takes over; a timeout (4 s), rate limit or refusal only
+affects that sentence. **Glossary…** opens `%APPDATA%\LiveTranslator\glossary.json`:
+
+```json
+{"topic": "Elden Ring stream", "terms": [{"src": "Tarnished", "tgt": "Sönük"}]}
+```
+
+Only the terms that appear in the sentence or its context are sent. The exe does not
+include the Claude packages yet; run from source to use it.
 
 The log is also written to `%LOCALAPPDATA%\LiveTranslator\live_translator.log` (the
 windowed exe has no console, so this is where to look when troubleshooting). An unexpected
@@ -205,8 +228,10 @@ With the default settings, captured speech chunks are sent to Google's free spee
 recognition endpoint to be turned into text, and the text is sent to Google's translation
 endpoints (or to MyMemory when Google rate-limits). When dubbing is on, the translated text
 goes through Edge-TTS to Microsoft's online speech service. If local Whisper is selected,
-the audio does not leave the machine; only text goes to the translation services. Keep this
-in mind when playing sensitive content.
+the audio does not leave the machine; only text goes to the translation services. With
+Claude translation on, the text of final sentences, the previous few sentences and matching
+glossary terms are sent to the Anthropic API under your key. Keep this in mind when playing
+sensitive content.
 
 ## License
 

@@ -14,6 +14,7 @@ yakaladığı için yalnızca Windows'ta çalışıyor (WASAPI loopback).
 - Sistem sesini WASAPI loopback ile yakalar, konuşmayı sessizliklere göre cümlelere böler.
 - Konuşmayı Google Web Speech ile ya da (kuruluysa) yerel Whisper ile metne çevirir; 37 dil tanımlı (`config.py` içindeki `LANGUAGES`).
 - Çeviri için sırayla üç servis dener (Google, Google web, MyMemory); biri sınırlayınca geri çekilip sıradakine geçer.
+- İsteğe bağlı, bağlamı dikkate alan Claude çevirisi (kendi Anthropic anahtarınızla): son birkaç cümle ve sözlüğünüz hesaba katılır; zamirler, adlar ve oyun terimleri tutarlı kalır. Kısmi altyazılar yine Google'dan gelir; herhangi bir hatada cümle ücretsiz zincire düşer.
 - Çevrilmiş altyazıyı ekranın altında, her şeyin üstünde, fareyi engellemeyen saydam bir şeritte gösterir; renk, boyut, genişlik, yükseklik ve opaklık ayarlanır, çoklu monitörde ekran seçilebilir.
 - "Akıcı mod": altyazı konuşma sürerken yaklaşık saniyede bir güncellenir.
 - İsteğe bağlı dublaj: çeviri Edge-TTS ile seslendirilir; geride kalınca konuşma hızlanır, bozuk ses yedeğine geçilir.
@@ -127,6 +128,28 @@ Beklenmeyen bir hata uygulamayı kapatmıyor, bu dosyaya düşüyor.
 Arayüz `main_window.py`'de. Desteklenen diller ve sesler `config.py` içindeki
 `LANGUAGES` tablosunda; yeni dil eklemek için oraya bir satır yeterli.
 
+### Claude çevirisi (isteğe bağlı)
+
+```powershell
+pip install -e ".[llm]"
+```
+
+**Çeviri motoru**'ndan "Claude Haiku" (hızlı, saatlik konuşma birkaç sent) ya da "Claude
+Sonnet"i seçin, gizlilik uyarısını bir kez onaylayın ve **Anahtar…** ile Anthropic API
+anahtarınızı girin. Anahtar kayıt defterine değil, `keyring` üzerinden Windows Kimlik Bilgisi
+Yöneticisi'ne yazılıyor; `ANTHROPIC_API_KEY` ortam değişkeni de çalışıyor. Claude'a yalnızca
+kesin cümleler, önceki dört cümleyle birlikte gidiyor (30 sn sessizlikte ya da dil
+değişince bağlam sıfırlanıyor). Anahtar geçersizse ya da hesapta kredi yoksa Claude o oturum
+için tek bir uyarıyla kapanıyor ve Google devam ediyor; zaman aşımı (4 sn), hız sınırı ya
+da ret yalnızca o cümleyi etkiliyor. **Sözlük…** `%APPDATA%\LiveTranslator\glossary.json`'ı açar:
+
+```json
+{"topic": "Elden Ring yayını", "terms": [{"src": "Tarnished", "tgt": "Sönük"}]}
+```
+
+Yalnızca cümlede ya da bağlamda geçen terimler gönderiliyor. Exe henüz Claude paketlerini
+içermiyor; kullanmak için kaynaktan çalıştırın.
+
 ## Proje yapısı
 
 ```
@@ -205,7 +228,9 @@ Varsayılan ayarlarda yakalanan konuşma parçaları metne çevrilmek üzere Goo
 tanıma ucuna, metinler çeviri için Google'ın çeviri uçlarına (Google sınırlarsa MyMemory'ye)
 gönderiliyor. Dublaj açıksa çevrilen metin Edge-TTS üzerinden Microsoft'un çevrimiçi ses servisine
 gidiyor. Yerel Whisper seçilirse ses cihazdan çıkmıyor, yalnızca metin çeviri servislerine gidiyor.
-Hassas içerik oynatırken bunu göz önünde bulundurun.
+Claude çevirisi açıkken kesin cümlelerin metni, önceki birkaç cümle ve eşleşen sözlük terimleri
+sizin anahtarınızla Anthropic API'sine gönderiliyor. Hassas içerik oynatırken bunu göz önünde
+bulundurun.
 
 ## Lisans
 
