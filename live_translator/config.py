@@ -31,7 +31,29 @@ LANGUAGES: dict[str, LanguageProfile] = {
     "uk": LanguageProfile("Ukraynaca",     "uk-UA", "uk", ("uk-UA-PolinaNeural", "uk-UA-OstapNeural")),
     "fa": LanguageProfile("Farsça",        "fa-IR", "fa", ("fa-IR-DilaraNeural", "fa-IR-FaridNeural")),
     "az": LanguageProfile("Azerice",       "az-AZ", "az", ("az-AZ-BanuNeural", "az-AZ-BabekNeural")),
+    "id": LanguageProfile("Endonezce",     "id-ID", "id", ("id-ID-GadisNeural", "id-ID-ArdiNeural")),
+    "vi": LanguageProfile("Vietnamca",     "vi-VN", "vi", ("vi-VN-HoaiMyNeural", "vi-VN-NamMinhNeural")),
+    "th": LanguageProfile("Tayca",         "th-TH", "th", ("th-TH-PremwadeeNeural", "th-TH-NiwatNeural")),
+    "el": LanguageProfile("Yunanca",       "el-GR", "el", ("el-GR-AthinaNeural", "el-GR-NestorasNeural")),
+    "cs": LanguageProfile("Çekçe",         "cs-CZ", "cs", ("cs-CZ-VlastaNeural", "cs-CZ-AntoninNeural")),
+    "ro": LanguageProfile("Rumence",       "ro-RO", "ro", ("ro-RO-AlinaNeural", "ro-RO-EmilNeural")),
+    "hu": LanguageProfile("Macarca",       "hu-HU", "hu", ("hu-HU-NoemiNeural", "hu-HU-TamasNeural")),
+    "da": LanguageProfile("Danca",         "da-DK", "da", ("da-DK-ChristelNeural", "da-DK-JeppeNeural")),
+    "fi": LanguageProfile("Fince",         "fi-FI", "fi", ("fi-FI-NooraNeural", "fi-FI-HarriNeural")),
+    "bg": LanguageProfile("Bulgarca",      "bg-BG", "bg", ("bg-BG-KalinaNeural", "bg-BG-BorislavNeural")),
+    "hr": LanguageProfile("Hırvatça",      "hr-HR", "hr", ("hr-HR-GabrijelaNeural", "hr-HR-SreckoNeural")),
+    "sk": LanguageProfile("Slovakça",      "sk-SK", "sk", ("sk-SK-ViktoriaNeural", "sk-SK-LukasNeural")),
+    "ms": LanguageProfile("Malayca",       "ms-MY", "ms", ("ms-MY-YasminNeural", "ms-MY-OsmanNeural")),
+    "bn": LanguageProfile("Bengalce",      "bn-IN", "bn", ("bn-IN-TanishaaNeural", "bn-IN-BashkarNeural")),
+    "ur": LanguageProfile("Urduca",        "ur-PK", "ur", ("ur-PK-UzmaNeural", "ur-PK-AsadNeural")),
+    "ta": LanguageProfile("Tamilce",       "ta-IN", "ta", ("ta-IN-PallaviNeural", "ta-IN-ValluvarNeural")),
+    "ka": LanguageProfile("Gürcüce",       "ka-GE", "ka", ("ka-GE-EkaNeural", "ka-GE-GiorgiNeural")),
+    "kk": LanguageProfile("Kazakça",       "kk-KZ", "kk", ("kk-KZ-AigulNeural", "kk-KZ-DauletNeural")),
 }
+
+
+# Kaynak dil olarak seçilince dili Whisper buluyor (Google tanıma dil kodu istiyor)
+AUTO_LANGUAGE = "auto"
 
 
 @dataclass
@@ -43,6 +65,9 @@ class AppConfig:
     dubbing_enabled: bool = False
     voice: str = "tr-TR-EmelNeural"
     tts_rate: str = "+15%"
+
+    stt_engine: str = "google"           # "google" ya da "whisper" (faster-whisper kuruluysa)
+    whisper_model: str = "base"
 
     target_sample_rate: int = 16000      # STT'ye giden örnekleme hızı
     silence_threshold: float = 0.010     # RMS eşiği (0.0 - 1.0)
@@ -59,6 +84,10 @@ class AppConfig:
     subtitle_width_pct: int = 80         # ekran genişliğine oran
     subtitle_bottom_margin: int = 90     # ekranın altından yükseklik (px)
     subtitle_hold_sec: float = 6.0
+    subtitle_opacity: int = 78           # arka plan opaklığı (%), 78 ≈ eski sabit 200/255
+    subtitle_screen: str = ""            # ekran adı; boşsa birincil ekran
+    subtitle_show_previous: bool = False  # önceki cümlenin çevirisi üstte soluk dursun
+    subtitle_color: str = "#FFFFFF"
     show_original: bool = True
 
     mute_capture_while_dubbing: bool = True

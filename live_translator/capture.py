@@ -34,13 +34,17 @@ class AudioSegment:
     created_at: float = field(default_factory=time.time)
 
 
-# (parçalar, süre, kesin mi, utterance_id)
-SegmentSink = Callable[[list, float, bool, int], None]
+# (parçalar, süre, kesin mi, utterance_id, parçanın kaç sn önce bittiği)
+SegmentSink = Callable[[list, float, bool, int, float], None]
 
 
 class SpeechSegmenter:
     """Sessizliğe bakarak konuşmayı cümlelere ayırır. Cümle bitince, çok
     uzayınca ya da kısmi sonuç zamanı gelince sink'i çağırır."""
+
+    # Zorla kesmek gerekince kesim noktası son bu kadar saniyedeki en sessiz an
+    SPLIT_SEARCH_SEC = 1.5
+    _SPLIT_WINDOW_SEC = 0.06   # 20 ms patlamalı ünsüzlerin içine denk gelip kelime bölüyordu
 
     def __init__(self, config: AppConfig, rate: int, sink: SegmentSink) -> None:
         self._config = config
@@ -83,14 +87,16 @@ class SpeechSegmenter:
             self._silence_started = now
 
         duration = self._duration()
-        if self._silence_elapsed(now) or duration >= cfg.max_segment_sec:
+        if self._silence_elapsed(now):
             self._end_utterance(duration)
+        elif duration >= cfg.max_segment_sec:
+            self._split_long_utterance(now)
         elif (cfg.streaming_enabled
               and duration >= cfg.partial_min_sec
               and (now - self._last_partial_at) >= cfg.partial_interval_sec):
             # tampon temizlenmiyor, bir sonraki kısmi bunun uzamış hâli olacak
             self._last_partial_at = now
-            self._sink(self._buffer, duration, False, self._utterance_id)
+            self._sink(self._buffer, duration, False, self._utterance_id, 0.0)
 
     def on_no_data(self, now: float) -> None:
         """Cihaz paket vermiyorsa ortada ses yok demektir; yarım kalan
@@ -99,6 +105,13 @@ class SpeechSegmenter:
             self._silence_started = now
         if self._silence_elapsed(now):
             self._end_utterance(self._duration())
+
+    def interrupt(self) -> None:
+        """Dublaj başlayınca çağrılıyor. Yarım cümleyi atmak yerine o ana
+        kadar yakalananı gönderiyoruz; içinde henüz dublaj sesi yok."""
+        if self.in_speech and self._buffer:
+            self._end_utterance(self._duration())
+        self.reset()
 
     def reset(self) -> None:
         self._buffer = []
@@ -110,7 +123,7 @@ class SpeechSegmenter:
 
     def finish(self) -> None:
         if self._buffer:
-            self._sink(self._buffer, self._duration(), True, self._utterance_id)
+            self._sink(self._buffer, self._duration(), True, self._utterance_id, 0.0)
 
     def _duration(self) -> float:
         return self._samples / float(self._rate)
@@ -119,8 +132,33 @@ class SpeechSegmenter:
         return (self._silence_started is not None
                 and (now - self._silence_started) >= self._config.silence_duration)
 
+    def _split_long_utterance(self, now: float) -> None:
+        """Duraksamadan süren konuşmada max_segment_sec'te kör kesmek kelimeyi
+        ortadan bölüyor, iki yarısı da yanlış tanınıyordu. Son birkaç saniyenin
+        en sessiz noktasından bölüp kalanı yeni cümlenin başına taşıyoruz."""
+        audio = np.concatenate(self._buffer)
+        window = max(1, int(self._SPLIT_WINDOW_SEC * self._rate))
+        search = min(audio.size // 2, int(self.SPLIT_SEARCH_SEC * self._rate))
+        count = search // window
+        if count < 2:
+            self._end_utterance(self._duration())
+            return
+        start = audio.size - search
+        energy = np.square(audio[start:start + count * window].reshape(count, window)).mean(axis=1)
+        cut = start + int(np.argmin(energy)) * window + window // 2
+
+        head, rest = audio[:cut], audio[cut:]
+        # Baş kısım şimdi değil, kalan kadar önce bitti; SRT zamanı kaymasın
+        self._sink([head], head.size / float(self._rate), True, self._utterance_id,
+                   rest.size / float(self._rate))
+        self._utterance_id += 1
+        self._buffer = [rest]
+        self._samples = rest.size
+        self._silence_started = None
+        self._last_partial_at = now
+
     def _end_utterance(self, duration: float) -> None:
-        self._sink(self._buffer, duration, True, self._utterance_id)
+        self._sink(self._buffer, duration, True, self._utterance_id, 0.0)
         self._utterance_id += 1
         self._buffer = []
         self._samples = 0
@@ -136,6 +174,16 @@ class LoopbackAudioCapturer(QThread):
 
     _FRAMES_PER_BUFFER = 1024
     LEVEL_EMIT_HZ = 15.0                  # göstergeye bu kadarı yetiyor, Qt kuyruğu şişmesin
+    # Bu kadar süre paket gelmezse cihaz yeniden çözülüyor. Varsayılan çıkış
+    # değişince (kulaklık takılınca vb.) eski cihazın loopback'i sessizce
+    # susuyor, PortAudio da cihaz listesini ancak yeniden başlatılınca tazeliyor.
+    # Uzun duraklamada PortAudio'yu sürekli baştan açmamak için aralık her
+    # boş turda ikiye katlanıyor, ses gelince başa dönüyor.
+    IDLE_RECHECK_SEC = 3.0
+    IDLE_RECHECK_MAX_SEC = 12.0
+    MAX_CONSECUTIVE_ERRORS = 20           # ~1 sn; cihaz çıkarılınca akış hep hata veriyor
+    RECONNECT_DELAY_SEC = 1.5
+    _DIGITAL_SILENCE = 1e-5
 
     def __init__(self, config: AppConfig, out_queue: "queue.Queue[AudioSegment]",
                  mute_flag: threading.Event, parent: Optional[QObject] = None) -> None:
@@ -201,50 +249,98 @@ class LoopbackAudioCapturer(QThread):
         raise RuntimeError(f"Ses akışı açılamadı: {last_error}")
 
     def run(self) -> None:
-        try:
-            pa = pyaudio.PyAudio()
-        except Exception as exc:
-            self.error_occurred.emit(f"PyAudio başlatılamadı: {exc}")
-            return
+        device_name: Optional[str] = None
+        waiting_reported = False
+        idle_limit = self.IDLE_RECHECK_SEC
+        while not self._stop_event.is_set():
+            try:
+                pa, device, stream, fmt, rate, channels = self._open_session()
+            except Exception as exc:
+                if device_name is None:
+                    # İlk açılışta cihaz yoksa beklemenin anlamı yok, kullanıcıya söylüyoruz
+                    LOGGER.exception("Ses cihazı açılamadı")
+                    self.error_occurred.emit(str(exc))
+                    break
+                LOGGER.warning("Ses cihazı yeniden açılamadı: %s", exc)
+                if not waiting_reported:
+                    self.status_message.emit("⚠ Ses cihazına ulaşılamıyor, yeniden deneniyor...")
+                    waiting_reported = True
+                self._stop_event.wait(self.RECONNECT_DELAY_SEC)
+                continue
 
-        stream = None
-        try:
-            device = self._resolve_loopback_device(pa)
-            self.device_resolved.emit(str(device.get("name", "?")))
-            stream, fmt, rate, channels = self._open_stream(pa, device)
-            self.status_message.emit(f"Dinleniyor: {device['name']} ({rate} Hz / {channels} kanal)")
+            waiting_reported = False
+            name = str(device.get("name", "?"))
+            if name != device_name:
+                self.device_resolved.emit(name)
+                prefix = "Dinleniyor" if device_name is None else "Ses cihazı değişti, dinleniyor"
+                self.status_message.emit(f"{prefix}: {name} ({rate} Hz / {channels} kanal)")
+                device_name = name
 
             # Tampon cihazın kendi hızında (ör. 48 kHz) tutulup segment bitince
             # tek seferde 16 kHz'e indiriliyor. Blok blok örneklenseydi her blok
             # sınırında filtre tıklaması oluşur, tanıma kötüleşirdi.
             segmenter = SpeechSegmenter(
                 self._config, rate,
-                lambda chunks, duration, is_final, uid: self._flush(chunks, duration, rate, is_final, uid))
-            self._capture_loop(stream, fmt, channels, segmenter)
-            segmenter.finish()
+                lambda chunks, duration, is_final, uid, ago, r=rate:
+                    self._flush(chunks, duration, r, is_final, uid, ago))
+            try:
+                got_data = self._capture_loop(stream, fmt, channels, segmenter, idle_limit)
+                segmenter.finish()
+                idle_limit = (self.IDLE_RECHECK_SEC if got_data
+                              else min(idle_limit * 2, self.IDLE_RECHECK_MAX_SEC))
+            except Exception as exc:
+                LOGGER.exception("Yakalama döngüsü hatası")
+                self.error_occurred.emit(str(exc))
+                break
+            finally:
+                self._close_session(pa, stream)
+        self.status_message.emit("Dinleme durduruldu.")
+
+    def _open_session(self):
+        try:
+            pa = pyaudio.PyAudio()
         except Exception as exc:
-            LOGGER.exception("Yakalama döngüsü hatası")
-            self.error_occurred.emit(str(exc))
-        finally:
-            if stream is not None:
-                with contextlib.suppress(Exception):
-                    stream.stop_stream()
-                    stream.close()
+            raise RuntimeError(f"PyAudio başlatılamadı: {exc}") from exc
+        try:
+            device = self._resolve_loopback_device(pa)
+            stream, fmt, rate, channels = self._open_stream(pa, device)
+        except Exception:
             with contextlib.suppress(Exception):
                 pa.terminate()
-            self.status_message.emit("Dinleme durduruldu.")
+            raise
+        return pa, device, stream, fmt, rate, channels
 
-    def _capture_loop(self, stream, fmt: int, channels: int, segmenter: SpeechSegmenter) -> None:
+    @staticmethod
+    def _close_session(pa, stream) -> None:
+        with contextlib.suppress(Exception):
+            stream.stop_stream()
+            stream.close()
+        with contextlib.suppress(Exception):
+            pa.terminate()
+
+    def _capture_loop(self, stream, fmt: int, channels: int, segmenter: SpeechSegmenter,
+                      idle_limit: float) -> bool:
+        """Durdurulunca, akış kopunca ya da idle_limit boyunca ses gelmeyince
+        döner; son ikisinde run() cihazı baştan çözüp yeniden açıyor. Arada
+        gerçek ses okunduysa True."""
         dtype = np.int16 if fmt == pyaudio.paInt16 else np.float32
         scale = 1.0 / 32768.0 if fmt == pyaudio.paInt16 else 1.0
+        errors = 0
+        got_data = False
+        last_data_at = time.monotonic()
 
         while not self._stop_event.is_set():
+            if errors >= self.MAX_CONSECUTIVE_ERRORS:
+                LOGGER.warning("Ses akışı art arda hata veriyor, cihaz yeniden açılıyor.")
+                return got_data
+
             # Hiçbir şey çalmıyorken loopback paket üretmiyor ve read() bloklanıyor;
             # önce hazır kare var mı diye bakınca Durdur beklemeden işleniyor.
             try:
                 available = stream.get_read_available()
             except Exception as exc:
-                LOGGER.warning("Ses akışı sorgulanamadı: %s", exc)
+                errors += 1
+                LOGGER.debug("Ses akışı sorgulanamadı: %s", exc)
                 time.sleep(0.05)
                 continue
 
@@ -253,15 +349,19 @@ class LoopbackAudioCapturer(QThread):
                     segmenter.on_no_data(time.time())
                 else:
                     self._emit_level(0.0)
+                    if time.monotonic() - last_data_at >= idle_limit:
+                        return got_data
                 time.sleep(0.02)
                 continue
 
             try:
                 raw = stream.read(min(available, self._FRAMES_PER_BUFFER), exception_on_overflow=False)
             except Exception as exc:
-                LOGGER.warning("Ses okuma hatası: %s", exc)
+                errors += 1
+                LOGGER.debug("Ses okuma hatası: %s", exc)
                 time.sleep(0.05)
                 continue
+            errors = 0
 
             block = np.frombuffer(raw, dtype=dtype).astype(np.float32) * scale
             mono = AudioMath.to_mono(block, channels)
@@ -270,12 +370,21 @@ class LoopbackAudioCapturer(QThread):
 
             level = AudioMath.rms(mono)
             self._emit_level(min(level * 8.0, 1.0))
+            # Bazı sürücüler hiçbir şey çalmazken de sıfır dolu paket veriyor;
+            # onu "ses var" saymazsak cihaz değişimi orada da fark ediliyor.
+            if level > self._DIGITAL_SILENCE:
+                got_data = True
+                last_data_at = time.monotonic()
+            elif (not segmenter.in_speech
+                  and time.monotonic() - last_data_at >= idle_limit):
+                return got_data
 
             now = time.time()
             if self._is_muted(now):
-                segmenter.reset()
+                segmenter.interrupt()
                 continue
             segmenter.feed(mono, level, now)
+        return got_data
 
     def _is_muted(self, now: float) -> bool:
         """Dublaj çalarken ve bittikten kısa süre sonrasına kadar yakalamayı
@@ -295,7 +404,7 @@ class LoopbackAudioCapturer(QThread):
         self.level_changed.emit(level)
 
     def _flush(self, chunks: list[np.ndarray], duration: float, source_rate: int,
-               is_final: bool = True, utterance_id: int = 0) -> None:
+               is_final: bool = True, utterance_id: int = 0, ended_ago: float = 0.0) -> None:
         minimum = self._config.min_segment_sec if is_final else self._config.partial_min_sec
         if duration < minimum or not chunks:
             return
@@ -308,4 +417,5 @@ class LoopbackAudioCapturer(QThread):
             duration=duration,
             is_final=is_final,
             utterance_id=utterance_id,
+            created_at=time.time() - ended_ago,
         ))

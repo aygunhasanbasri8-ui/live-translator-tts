@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import sys
+from typing import Optional
 
 from PyQt6 import QtGui, QtWidgets
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot
@@ -43,10 +44,12 @@ class SubtitleOverlay(QtWidgets.QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(self._SPACING)
 
+        self._previous_label = self._make_label(is_primary=False)
         self._original_label = self._make_label(is_primary=False)
         self._translated_label = self._make_label(is_primary=True)
-        layout.addWidget(self._original_label, 0, Qt.AlignmentFlag.AlignHCenter)
-        layout.addWidget(self._translated_label, 0, Qt.AlignmentFlag.AlignHCenter)
+        for label in self._labels():
+            layout.addWidget(label, 0, Qt.AlignmentFlag.AlignHCenter)
+        self._last_final = ""
 
         self._hide_timer = QTimer(self)
         self._hide_timer.setSingleShot(True)
@@ -54,6 +57,9 @@ class SubtitleOverlay(QtWidgets.QWidget):
 
         self.apply_style()
         self.reposition()
+
+    def _labels(self) -> tuple[QtWidgets.QLabel, ...]:
+        return (self._previous_label, self._original_label, self._translated_label)
 
     def _make_label(self, is_primary: bool) -> QtWidgets.QLabel:
         label = QtWidgets.QLabel("", self)
@@ -77,12 +83,19 @@ class SubtitleOverlay(QtWidgets.QWidget):
         sub_font.setItalic(True)
         self._original_label.setFont(sub_font)
 
+        previous_font = QtGui.QFont("Segoe UI")
+        previous_font.setPixelSize(max(12, int(size * 0.75)))
+        self._previous_label.setFont(previous_font)
+
+        # Orijinal satırın zemini ana satırınkinin 0.6'sı; eskiden 120/200'dü
+        opacity = max(0, min(100, self._config.subtitle_opacity)) / 100
+        alpha = int(255 * opacity)
         self._translated_label.setStyleSheet(
             f"""
             QLabel {{
-                color: #FFFFFF;
-                background-color: rgba(0, 0, 0, 200);
-                border: {self._BORDER_MAIN}px solid rgba(255, 255, 255, 45);
+                color: {QtGui.QColor(self._config.subtitle_color).name()};
+                background-color: rgba(0, 0, 0, {alpha});
+                border: {self._BORDER_MAIN}px solid rgba(255, 255, 255, {int(45 * opacity)});
                 border-radius: 14px;
                 padding: {self._PAD_V_MAIN}px {self._PAD_H_MAIN}px;
             }}
@@ -92,13 +105,35 @@ class SubtitleOverlay(QtWidgets.QWidget):
             f"""
             QLabel {{
                 color: #B9C4D0;
-                background-color: rgba(0, 0, 0, 120);
+                background-color: rgba(0, 0, 0, {int(alpha * 0.6)});
                 border-radius: 10px;
                 padding: {self._PAD_V_SUB}px {self._PAD_H_SUB}px;
             }}
             """
         )
+        self._previous_label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: #C8C8C8;
+                background-color: rgba(0, 0, 0, {int(alpha * 0.6)});
+                border-radius: 10px;
+                padding: {self._PAD_V_SUB}px {self._PAD_H_SUB}px;
+            }}
+            """
+        )
+        # Zemin silikleşince beyaz yazı açık renkli sahnede kayboluyor;
+        # yazının etrafına koyu bir hale ekliyoruz.
+        for label in self._labels():
+            label.setGraphicsEffect(self._text_halo() if opacity < 0.5 else None)
         self.reposition()
+
+    @staticmethod
+    def _text_halo() -> QtWidgets.QGraphicsDropShadowEffect:
+        effect = QtWidgets.QGraphicsDropShadowEffect()
+        effect.setBlurRadius(8)
+        effect.setOffset(0, 0)
+        effect.setColor(QtGui.QColor(0, 0, 0, 255))
+        return effect
 
     def enable_click_through(self) -> None:
         """Qt bayrağı her durumda yetmiyor, Win32 tarafında da ayarlıyoruz."""
@@ -119,7 +154,7 @@ class SubtitleOverlay(QtWidgets.QWidget):
     def reposition(self) -> None:
         """Genişlik ayardan, yükseklik içerikten geliyor. Sabit yükseklikte
         3-4 satırlık uzun çeviriler kırpılıp altyazı gelmemiş gibi görünüyordu."""
-        screen = QtWidgets.QApplication.primaryScreen()
+        screen = self._target_screen()
         if screen is None:
             return
         geo = screen.availableGeometry()
@@ -129,8 +164,10 @@ class SubtitleOverlay(QtWidgets.QWidget):
         content_width = 0
         height = 0
         shown = 0
-        for label in (self._original_label, self._translated_label):
-            if not label.isVisible():
+        for label in self._labels():
+            # isVisible() pencere gizliyken hep False; gizliyken gelen ilk
+            # altyazı (ve ayar önizlemesi) yanlış ölçülüp alttan kırpılıyordu
+            if not label.isVisibleTo(self):
                 continue
             label.setWordWrap(False)
             natural = label.sizeHint().width()
@@ -162,6 +199,15 @@ class SubtitleOverlay(QtWidgets.QWidget):
         y = geo.y() + geo.height() - height - self._config.subtitle_bottom_margin
         self.setGeometry(x, max(geo.y(), y), width, height)
 
+    def _target_screen(self) -> Optional[QtGui.QScreen]:
+        # Video çoğu zaman ikinci ekranda oynuyor; seçilen ekran çıkarıldıysa birincile dön
+        name = self._config.subtitle_screen
+        if name:
+            for screen in QtWidgets.QApplication.screens():
+                if screen.name() == name:
+                    return screen
+        return QtWidgets.QApplication.primaryScreen()
+
     @pyqtSlot(str, str)
     def show_subtitle(self, original: str, translated: str) -> None:
         # Slot içinden kaçan istisna PyQt6'da uygulamayı düşürüyor
@@ -172,8 +218,14 @@ class SubtitleOverlay(QtWidgets.QWidget):
             else:
                 self._original_label.setVisible(False)
 
-            self._translated_label.setText(translated or original)
-            self._translated_label.setVisible(bool(translated or original))
+            current = translated or original
+            self._translated_label.setText(current)
+            self._translated_label.setVisible(bool(current))
+
+            # Hızlı konuşmada bir önceki cümle okunmadan kayboluyordu
+            previous = self._last_final if self._config.subtitle_show_previous else ""
+            self._previous_label.setText(previous)
+            self._previous_label.setVisible(bool(previous) and previous != current)
 
             self.reposition()
 
@@ -200,9 +252,18 @@ class SubtitleOverlay(QtWidgets.QWidget):
             self._clear_text()
             self.hide()
 
+    def clear(self) -> None:
+        self._hide_timer.stop()
+        self._clear_text()
+
+    def remember_final(self, translated: str) -> None:
+        self._last_final = translated
+
     def _clear_text(self) -> None:
-        self._original_label.setVisible(False)
-        self._translated_label.setVisible(False)
+        # Uzun sessizlikten sonra eski cümle "önceki" diye geri gelmesin
+        self._last_final = ""
+        for label in self._labels():
+            label.setVisible(False)
 
     def showEvent(self, event: QtGui.QShowEvent) -> None:  # noqa: N802 (Qt API)
         super().showEvent(event)

@@ -90,7 +90,10 @@ print("=" * 64)
 
 check("PortAudio + loopback cihazı", t_device)
 check("Edge-TTS sentezi", t_edge)
-check("deep-translator", lambda: repr(LT.TranslatorService().translate("good morning", "en", "tr")))
+check("Google çeviri", lambda: repr(LT.TranslatorService()._google_api("good morning", "en", "tr")))
+check("Google web çeviri", lambda: repr(LT.TranslatorService()._google("good morning", "en", "tr")))
+# Google sınırladığında altyazı bununla devam ediyor
+check("MyMemory yedek çeviri", lambda: repr(LT.TranslatorService()._mymemory("good morning", "en", "tr")))
 check("UÇTAN UCA (yakala+STT+çeviri)", t_pipeline)
 
 try:
